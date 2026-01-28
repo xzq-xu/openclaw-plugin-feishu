@@ -36,7 +36,8 @@
         "test:watch": "vitest",
         "clean": "rm -rf dist",
         "prerelease": "npm run lint && npm run build && npm run test && node --check dist/index.js && echo '✅ All checks passed'",
-        "dev:local": "tsx scripts/local-test.ts"
+        "dev:local": "tsx scripts/local-test.ts",
+        "version": "node scripts/sync-version.js && git add moltbot.plugin.json"
     },
     "clawdbot": {
         "extensions": [

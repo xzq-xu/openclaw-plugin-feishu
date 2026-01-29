@@ -67,12 +67,17 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
   }
 
   // Probe to get bot info
-  const probeResult = await probeConnection(feishuCfg);
-  console.log(`[feishu] Gateway: probe result: ok=${probeResult.ok}, error=${probeResult.error}, botOpenId=${probeResult.botOpenId}`);
-  if (probeResult.ok) {
-    state.botOpenId = probeResult.botOpenId;
-    state.botName = probeResult.botName;
-    log(`Gateway: bot open_id resolved: ${state.botOpenId ?? "unknown"}`);
+  console.log("[feishu] Gateway: starting probe...");
+  try {
+    const probeResult = await probeConnection(feishuCfg);
+    console.log(`[feishu] Gateway: probe result: ok=${probeResult.ok}, error=${probeResult.error}, botOpenId=${probeResult.botOpenId}`);
+    if (probeResult.ok) {
+      state.botOpenId = probeResult.botOpenId;
+      state.botName = probeResult.botName;
+      console.log(`[feishu] Gateway: bot identity: ${state.botName} (${state.botOpenId})`);
+    }
+  } catch (err) {
+    console.log(`[feishu] Gateway: probe failed with error: ${String(err)}`);
   }
 
   // Only websocket mode is supported

@@ -31,3 +31,5 @@ coverage/
 # Cache
 .eslintcache
 *.tsbuildinfo
+.sisyphus/
+AGENTS.md

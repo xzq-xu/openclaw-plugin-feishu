@@ -58,33 +58,44 @@ export function createListMessagesTool(opts: CreateToolOptions) {
       "Retrieve message history from a Feishu chat. Use this to understand conversation context or find previous messages.",
     parameters: ListMessagesToolSchema,
     execute: async (_toolCallId: string, args: unknown) => {
-      const config = opts.getConfig();
-      if (!config) {
-        return jsonResult({ error: "Feishu not configured" });
-      }
+      try {
+        const config = opts.getConfig();
+        if (!config) {
+          return jsonResult({ error: "Feishu not configured" });
+        }
 
-      const params = args as ListMessagesParams;
-      const result = await listMessages(config, {
-        chatId: params.chatId,
-        pageSize: params.pageSize ?? 20,
-        pageToken: params.pageToken,
-      });
+        const params = args as ListMessagesParams;
+        if (!params.chatId) {
+          return jsonResult({ error: "chatId is required" });
+        }
 
-      if (!result) {
-        return jsonResult({ error: "Failed to fetch messages or access denied" });
-      }
+        const result = await listMessages(config, {
+          chatId: params.chatId,
+          pageSize: params.pageSize ?? 20,
+          pageToken: params.pageToken,
+        });
 
-      return jsonResult({
-        messages: result.messages.map((m) => ({
+        if (!result) {
+          return jsonResult({ error: "Failed to fetch messages or access denied" });
+        }
+
+        const messages = (result.messages ?? []).map((m) => ({
           messageId: m.messageId,
           sender: m.senderOpenId,
           content: m.content,
           contentType: m.contentType,
           createTime: m.createTime,
-        })),
-        hasMore: result.hasMore,
-        pageToken: result.pageToken,
-      });
+        }));
+
+        return jsonResult({
+          messages,
+          hasMore: result.hasMore ?? false,
+          pageToken: result.pageToken,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonResult({ error: `Tool execution failed: ${message}` });
+      }
     },
   };
 }

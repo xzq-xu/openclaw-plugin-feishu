@@ -189,10 +189,20 @@ export async function listMessages(
     })) as ListMessageResponse;
 
     if (response.code !== 0) {
+      console.error("[feishu] listMessages API error:", response.code, response.msg);
       return null;
     }
 
-    const items = response.data?.items ?? [];
+    const items = response.data?.items;
+    if (!items || !Array.isArray(items)) {
+      console.warn("[feishu] listMessages: items is not an array", typeof items);
+      return {
+        messages: [],
+        pageToken: response.data?.page_token,
+        hasMore: response.data?.has_more ?? false,
+      };
+    }
+
     const messages: HistoryMessage[] = items.map((item) => {
       let content = item.body?.content ?? "";
       try {
@@ -227,7 +237,8 @@ export async function listMessages(
       pageToken: response.data?.page_token,
       hasMore: response.data?.has_more ?? false,
     };
-  } catch {
+  } catch (err) {
+    console.error("[feishu] listMessages exception:", err);
     return null;
   }
 }

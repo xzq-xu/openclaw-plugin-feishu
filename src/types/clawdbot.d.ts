@@ -313,6 +313,9 @@ declare module "clawdbot/plugin-sdk" {
       resolveToolPolicy(params: ChannelGroupContext): GroupToolPolicyConfig | undefined;
     };
     reload?: { configPrefixes: string[] };
+    threading?: {
+      resolveReplyToMode?(params: { cfg: ClawdbotConfig; accountId?: string | null; chatType?: string | null }): "off" | "first" | "all";
+    };
     configSchema?: { schema: Record<string, unknown> };
     config: {
       listAccountIds(): string[];

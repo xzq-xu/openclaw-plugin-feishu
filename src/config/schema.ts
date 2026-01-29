@@ -17,6 +17,7 @@ export const MarkdownModeSchema = z.enum(["native", "escape", "strip"]);
 export const TableModeSchema = z.enum(["native", "ascii", "simple"]);
 export const ChunkModeSchema = z.enum(["length", "newline"]);
 export const HeartbeatVisibilitySchema = z.enum(["visible", "hidden"]);
+export const ReplyToModeSchema = z.enum(["off", "first", "all"]);
 
 // ============================================================================
 // Sub-schemas
@@ -119,6 +120,9 @@ export const ConfigSchema = z
     // UI
     heartbeat: HeartbeatConfigSchema,
     capabilities: z.array(z.string()).optional(),
+
+    // Threading
+    replyToMode: ReplyToModeSchema.optional().default("first"),
     configWrites: z.boolean().optional(),
   })
   .strict()

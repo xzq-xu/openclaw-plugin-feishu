@@ -88,7 +88,7 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
 
   // Capabilities declaration
   capabilities: {
-    chatTypes: ["direct", "channel"],
+    chatTypes: ["direct", "group", "channel"],
     polls: false,
     threads: true,
     media: true,
@@ -116,6 +116,14 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
 
   // Config reload triggers
   reload: { configPrefixes: ["channels.feishu"] },
+
+  // Threading configuration
+  threading: {
+    resolveReplyToMode: ({ cfg }) => {
+      const feishuCfg = cfg.channels?.feishu as Config | undefined;
+      return feishuCfg?.replyToMode ?? "first";
+    },
+  },
 
   // JSON Schema for config validation
   configSchema: {

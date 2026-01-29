@@ -17,6 +17,7 @@ import { sendTextMessage, normalizeTarget, isValidId } from "../api/messages.js"
 import { sendMedia } from "../api/media.js";
 import { listUsers, listGroups } from "../api/directory.js";
 import { resolveGroupToolPolicy } from "../core/policy.js";
+import { formatMentionsForFeishu } from "../core/parser.js";
 import { getRuntime } from "../core/runtime.js";
 import { feishuOnboarding } from "./onboarding.js";
 
@@ -100,6 +101,8 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
   // Agent prompt hints
   agentPrompt: {
     messageToolHints: () => [
+      "- Feishu history: use listMessages({ chatId, pageSize?, startTime?, endTime? }) to retrieve conversation history.",
+      "- Feishu mentions: use @[Name](open_id) format to mention users in replies. Example: @[Alice](ou_xxx) will be converted to native mention.",
       "- Feishu targeting: omit `target` to reply to current conversation. Explicit: `user:open_id` or `chat:chat_id`.",
       "- Feishu supports interactive cards for rich messages.",
     ],
@@ -273,7 +276,8 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
       if (!feishuCfg) throw new Error("Feishu not configured");
       const runtime = getRuntime();
       const tableMode = runtime.channel.text.resolveMarkdownTableMode({ cfg, channel: "feishu" });
-      const convertedText = runtime.channel.text.convertMarkdownTables(text ?? "", tableMode);
+      const tableConverted = runtime.channel.text.convertMarkdownTables(text ?? "", tableMode);
+      const convertedText = formatMentionsForFeishu(tableConverted);
       const result = await sendTextMessage(feishuCfg, { to, text: convertedText });
       return { channel: "feishu", ...result };
     },
@@ -286,7 +290,8 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
 
       // Send text first if provided
       if (text?.trim()) {
-        const convertedText = runtime.channel.text.convertMarkdownTables(text, tableMode);
+        const mediaTableConverted = runtime.channel.text.convertMarkdownTables(text, tableMode);
+        const convertedText = formatMentionsForFeishu(mediaTableConverted);
         await sendTextMessage(feishuCfg, { to, text: convertedText });
       }
 
@@ -303,7 +308,8 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
         }
       }
 
-      const convertedFallback = runtime.channel.text.convertMarkdownTables(text ?? "", tableMode);
+      const fallbackTableConverted = runtime.channel.text.convertMarkdownTables(text ?? "", tableMode);
+      const convertedFallback = formatMentionsForFeishu(fallbackTableConverted);
       const result = await sendTextMessage(feishuCfg, { to, text: convertedFallback });
       return { channel: "feishu", ...result };
     },

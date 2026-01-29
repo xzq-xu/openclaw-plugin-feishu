@@ -158,3 +158,18 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
     mentions: mentions.length > 0 ? mentions : undefined,
   };
 }
+
+// ============================================================================
+// Outbound Mention Formatting
+// ============================================================================
+
+/**
+ * Convert @[Name](open_id) format to Feishu native <at user_id="open_id">Name</at> format.
+ * This is the reverse of stripMentions for outbound messages.
+ */
+export function formatMentionsForFeishu(text: string): string {
+  const mentionPattern = /@\[([^\]]+)\]\(([^)]+)\)/g;
+  return text.replace(mentionPattern, (_match, name: string, openId: string) => {
+    return `<at user_id="${openId}">${name}</at>`;
+  });
+}

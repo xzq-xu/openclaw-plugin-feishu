@@ -9,6 +9,7 @@ import {
   stripMentions,
   parseMessageEvent,
   extractMentions,
+    formatMentionsForFeishu,
 } from "../../../dist/core/parser.js";
 import type { MessageReceivedEvent, MessageMention } from "../../../dist/types/index.js";
 
@@ -227,4 +228,40 @@ describe("parseMessageEvent", () => {
     const result = parseMessageEvent(baseEvent, "ou_bot");
     expect(result.mentions).toBeUndefined();
   });
+});
+
+describe("formatMentionsForFeishu", () => {
+    it("converts @[Name](open_id) to Feishu native format", () => {
+        const input = "@[Alice](ou_123) hello";
+        const expected = '<at user_id="ou_123">Alice</at> hello';
+        expect(formatMentionsForFeishu(input)).toBe(expected);
+    });
+
+    it("converts multiple mentions", () => {
+        const input = "@[Alice](ou_alice) @[Bob](ou_bob) meeting";
+        const expected = '<at user_id="ou_alice">Alice</at> <at user_id="ou_bob">Bob</at> meeting';
+        expect(formatMentionsForFeishu(input)).toBe(expected);
+    });
+
+    it("returns text unchanged when no mentions", () => {
+        const input = "Hello world, no mentions here";
+        expect(formatMentionsForFeishu(input)).toBe(input);
+    });
+
+    it("handles special characters in name", () => {
+        const input = "@[张三.李四](ou_xxx) 你好";
+        const expected = '<at user_id="ou_xxx">张三.李四</at> 你好';
+        expect(formatMentionsForFeishu(input)).toBe(expected);
+    });
+
+    it("leaves malformed mentions unchanged", () => {
+        const input = "@[Name] missing parens @[](ou_123) empty name";
+        expect(formatMentionsForFeishu(input)).toBe(input);
+    });
+
+    it("handles mention at end of text", () => {
+        const input = "Please contact @[Alice](ou_alice)";
+        const expected = 'Please contact <at user_id="ou_alice">Alice</at>';
+        expect(formatMentionsForFeishu(input)).toBe(expected);
+    });
 });

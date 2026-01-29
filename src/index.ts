@@ -47,6 +47,7 @@ export {
   isBotMentioned,
   stripMentions,
   extractMentions,
+  formatMentionsForFeishu,
 } from "./core/parser.js";
 
 export {

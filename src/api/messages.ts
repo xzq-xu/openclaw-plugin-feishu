@@ -185,6 +185,7 @@ export async function listMessages(
         page_token: params.pageToken,
         start_time: params.startTime?.toString(),
         end_time: params.endTime?.toString(),
+        sort_type: "ByCreateTimeDesc", // Return newest messages first
       },
     })) as ListMessageResponse;
 

@@ -143,8 +143,8 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
     const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(cfg);
 
     // Build bot identity context for agent clarity
-    const botIdentity = botName && botOpenId
-      ? `[You are "${botName}" (${botOpenId}). Other @[Name](id) mentions are different users, not you.]\n\n`
+    const botIdentity = botName
+      ? `[You are "${botName}". The sender is talking TO YOU in this message. Respond as ${botName}.]\n\n`
       : "";
 
     // Build message body

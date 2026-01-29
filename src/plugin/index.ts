@@ -5,6 +5,7 @@
 import type { ClawdbotPluginApi } from "clawdbot/plugin-sdk";
 import { emptyPluginConfigSchema } from "clawdbot/plugin-sdk";
 import { feishuChannel } from "./channel.js";
+import { createFeishuTools } from "./tools.js";
 import { initializeRuntime } from "../core/runtime.js";
 
 // Re-export runtime management from core
@@ -19,6 +20,18 @@ const plugin = {
   register(api: ClawdbotPluginApi) {
     initializeRuntime(api.runtime);
     api.registerChannel({ plugin: feishuChannel });
+    
+    // Register tools if the API supports it
+    const apiWithTools = api as ClawdbotPluginApi & {
+      registerTool?: (tool: unknown, opts?: unknown) => void;
+    };
+    
+    if (typeof apiWithTools.registerTool === "function") {
+      apiWithTools.registerTool(createFeishuTools, { 
+        names: ["feishu_list_messages"],
+        optional: true 
+      });
+    }
   },
 };
 

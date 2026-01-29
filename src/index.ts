@@ -117,3 +117,6 @@ export type {
   // Probe
   ProbeResult,
 } from "./types/index.js";
+
+// Tools
+export { createFeishuTools, createListMessagesTool } from "./plugin/tools.js";

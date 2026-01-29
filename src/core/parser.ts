@@ -2,7 +2,12 @@
  * Message event parsing utilities.
  */
 
-import type { MessageReceivedEvent, MessageMention, ParsedMessage } from "../types/index.js";
+import type {
+  MessageReceivedEvent,
+  MessageMention,
+  ParsedMessage,
+  MentionInfo,
+} from "../types/index.js";
 
 // ============================================================================
 // Content Parsing
@@ -53,22 +58,63 @@ export function isBotMentioned(
 }
 
 /**
- * Remove bot mention text from message content.
- * Cleans up both @name and mention keys.
+ * Process mentions in message content.
+ * Removes bot mentions completely, preserves non-bot mentions as @[name](open_id) format.
  */
-export function stripMentions(text: string, mentions: MessageMention[] | undefined): string {
+export function stripMentions(
+  text: string,
+  mentions: MessageMention[] | undefined,
+  botOpenId?: string
+): string {
   if (!mentions || mentions.length === 0) {
     return text;
   }
 
   let result = text;
   for (const mention of mentions) {
-    // Remove @name format
-    const namePattern = new RegExp(`@${escapeRegex(mention.name)}\\s*`, "g");
-    result = result.replace(namePattern, "").trim();
+    const mentionOpenId = mention.id.open_id;
+    const isBotMention = botOpenId && mentionOpenId === botOpenId;
 
-    // Remove mention key format (e.g., @_user_xxx)
-    result = result.replace(new RegExp(escapeRegex(mention.key), "g"), "").trim();
+    if (isBotMention) {
+      const namePattern = new RegExp(`@${escapeRegex(mention.name)}\\s*`, "g");
+      result = result.replace(namePattern, "").trim();
+      result = result.replace(new RegExp(escapeRegex(mention.key), "g"), "").trim();
+    } else if (mentionOpenId) {
+      const replacement = `@[${mention.name}](${mentionOpenId})`;
+      const namePattern = new RegExp(`@${escapeRegex(mention.name)}`, "g");
+      result = result.replace(namePattern, replacement);
+      result = result.replace(new RegExp(escapeRegex(mention.key), "g"), replacement);
+    } else {
+      const namePattern = new RegExp(`@${escapeRegex(mention.name)}\\s*`, "g");
+      result = result.replace(namePattern, "").trim();
+      result = result.replace(new RegExp(escapeRegex(mention.key), "g"), "").trim();
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Extract non-bot mentions as structured MentionInfo array.
+ */
+export function extractMentions(
+  mentions: MessageMention[] | undefined,
+  botOpenId?: string
+): MentionInfo[] {
+  if (!mentions || mentions.length === 0) {
+    return [];
+  }
+
+  const result: MentionInfo[] = [];
+  for (const mention of mentions) {
+    const mentionOpenId = mention.id.open_id;
+    if (!mentionOpenId || (botOpenId && mentionOpenId === botOpenId)) {
+      continue;
+    }
+    result.push({
+      name: mention.name,
+      openId: mentionOpenId,
+    });
   }
 
   return result;
@@ -94,19 +140,21 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
 
   const rawContent = parseMessageContent(message.content, message.message_type);
   const mentionedBot = isBotMentioned(message.mentions, botOpenId);
-  const content = stripMentions(rawContent, message.mentions);
+  const content = stripMentions(rawContent, message.mentions, botOpenId);
+  const mentions = extractMentions(message.mentions, botOpenId);
 
   return {
     chatId: message.chat_id,
     messageId: message.message_id,
     senderId: sender.sender_id.user_id ?? sender.sender_id.open_id ?? "",
     senderOpenId: sender.sender_id.open_id ?? "",
-    senderName: undefined, // Not available in event, would need API lookup
+    senderName: undefined,
     chatType: message.chat_type,
     mentionedBot,
     rootId: message.root_id ?? undefined,
     parentId: message.parent_id ?? undefined,
     content,
     contentType: message.message_type,
+    mentions: mentions.length > 0 ? mentions : undefined,
   };
 }

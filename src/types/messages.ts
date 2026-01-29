@@ -57,6 +57,46 @@ export interface MessageInfo {
   createTime?: number;
 }
 
+/** Message from history with additional metadata */
+export interface HistoryMessage extends MessageInfo {
+  /** Whether the message has been deleted */
+  deleted?: boolean;
+  /** Whether the message has been edited */
+  updated?: boolean;
+}
+
+/** Parameters for listing messages in a chat */
+export interface ListMessagesParams {
+  /** Chat ID to list messages from */
+  chatId: string;
+  /** Number of messages per page (default: 20, max: 50) */
+  pageSize?: number;
+  /** Pagination cursor from previous request */
+  pageToken?: string;
+  /** Start time filter (Unix timestamp in milliseconds) */
+  startTime?: number;
+  /** End time filter (Unix timestamp in milliseconds) */
+  endTime?: number;
+}
+
+/** Result of listing messages */
+export interface ListMessagesResult {
+  /** List of messages */
+  messages: HistoryMessage[];
+  /** Cursor for next page (undefined if no more pages) */
+  pageToken?: string;
+  /** Whether there are more messages to fetch */
+  hasMore: boolean;
+}
+
+/** Preserved mention information for non-bot users */
+export interface MentionInfo {
+  /** Display name of the mentioned user */
+  name: string;
+  /** Open ID of the mentioned user */
+  openId: string;
+}
+
 /** Parsed message context for internal processing */
 export interface ParsedMessage {
   chatId: string;
@@ -70,6 +110,8 @@ export interface ParsedMessage {
   parentId?: string;
   content: string;
   contentType: string;
+  /** Non-bot mentions preserved from the message */
+  mentions?: MentionInfo[];
 }
 
 /** Parameters for uploading an image */

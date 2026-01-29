@@ -19,6 +19,7 @@ export {
   editMessage,
   updateCard,
   getMessage,
+  listMessages,
   normalizeTarget,
   isValidId,
 } from "./api/messages.js";
@@ -41,7 +42,12 @@ export { probeConnection, getApiClient, clearClientCache } from "./api/client.js
 // Core utilities
 export { startGateway, stopGateway, getBotOpenId } from "./core/gateway.js";
 
-export { parseMessageEvent, isBotMentioned, stripMentions } from "./core/parser.js";
+export {
+  parseMessageEvent,
+  isBotMentioned,
+  stripMentions,
+  extractMentions,
+} from "./core/parser.js";
 
 export {
   checkDmPolicy,
@@ -86,6 +92,10 @@ export type {
   ParsedMessage,
   ReceiveIdType,
   ChatType,
+  ListMessagesParams,
+  ListMessagesResult,
+  HistoryMessage,
+  MentionInfo,
   // Media
   UploadImageParams,
   UploadFileParams,

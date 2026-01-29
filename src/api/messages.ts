@@ -10,6 +10,9 @@ import type {
   SendResult,
   MessageInfo,
   ReceiveIdType,
+  ListMessagesParams,
+  ListMessagesResult,
+  HistoryMessage,
 } from "../types/index.js";
 import { getApiClient } from "./client.js";
 
@@ -130,6 +133,99 @@ export async function getMessage(config: Config, messageId: string): Promise<Mes
       content,
       contentType: item.msg_type ?? "text",
       createTime: item.create_time ? parseInt(item.create_time, 10) : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
+// Message History
+// ============================================================================
+
+interface ListMessageResponse {
+  code?: number;
+  msg?: string;
+  data?: {
+    items?: {
+      message_id?: string;
+      chat_id?: string;
+      msg_type?: string;
+      body?: { content?: string };
+      sender?: {
+        id?: string;
+        id_type?: string;
+        sender_type?: string;
+      };
+      create_time?: string;
+      deleted?: boolean;
+      updated?: boolean;
+    }[];
+    has_more?: boolean;
+    page_token?: string;
+  };
+}
+
+/**
+ * List messages in a chat with pagination support.
+ * Returns null if chat not found or access denied.
+ */
+export async function listMessages(
+  config: Config,
+  params: ListMessagesParams
+): Promise<ListMessagesResult | null> {
+  const client = getApiClient(config);
+
+  try {
+    const response = (await client.im.message.list({
+      params: {
+        container_id_type: "chat",
+        container_id: params.chatId,
+        page_size: params.pageSize ?? 20,
+        page_token: params.pageToken,
+        start_time: params.startTime?.toString(),
+        end_time: params.endTime?.toString(),
+      },
+    })) as ListMessageResponse;
+
+    if (response.code !== 0) {
+      return null;
+    }
+
+    const items = response.data?.items ?? [];
+    const messages: HistoryMessage[] = items.map((item) => {
+      let content = item.body?.content ?? "";
+      try {
+        const parsed: unknown = JSON.parse(content);
+        if (
+          item.msg_type === "text" &&
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "text" in parsed
+        ) {
+          content = String((parsed as { text: unknown }).text);
+        }
+      } catch {
+        // Keep raw content if parsing fails
+      }
+
+      return {
+        messageId: item.message_id ?? "",
+        chatId: item.chat_id ?? params.chatId,
+        senderId: item.sender?.id,
+        senderOpenId: item.sender?.id_type === "open_id" ? item.sender?.id : undefined,
+        content,
+        contentType: item.msg_type ?? "text",
+        createTime: item.create_time ? parseInt(item.create_time, 10) : undefined,
+        deleted: item.deleted,
+        updated: item.updated,
+      };
+    });
+
+    return {
+      messages,
+      pageToken: response.data?.page_token,
+      hasMore: response.data?.has_more ?? false,
     };
   } catch {
     return null;

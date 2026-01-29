@@ -21,6 +21,7 @@ export interface GatewayOptions {
 
 export interface GatewayState {
   botOpenId: string | undefined;
+  botName: string | undefined;
   wsClient: Lark.WSClient | null;
   chatHistories: Map<string, HistoryEntry[]>;
 }
@@ -30,6 +31,7 @@ export interface GatewayState {
 // ============================================================================
 
 const state: GatewayState = {
+  botName: undefined,
   botOpenId: undefined,
   wsClient: null,
   chatHistories: new Map(),
@@ -38,6 +40,10 @@ const state: GatewayState = {
 /**
  * Get the current bot's open_id.
  */
+export function getBotName(): string | undefined {
+  return state.botName;
+}
+
 export function getBotOpenId(): string | undefined {
   return state.botOpenId;
 }
@@ -64,6 +70,7 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
   const probeResult = await probeConnection(feishuCfg);
   if (probeResult.ok) {
     state.botOpenId = probeResult.botOpenId;
+    state.botName = probeResult.botName;
     log(`Gateway: bot open_id resolved: ${state.botOpenId ?? "unknown"}`);
   }
 
@@ -84,6 +91,7 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
           cfg,
           event,
           botOpenId: state.botOpenId,
+          botName: state.botName,
           runtime,
           chatHistories: state.chatHistories,
         });
@@ -173,5 +181,6 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
 export function stopGateway(): void {
   state.wsClient = null;
   state.botOpenId = undefined;
+  state.botName = undefined;
   state.chatHistories.clear();
 }

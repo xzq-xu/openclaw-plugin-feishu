@@ -40,7 +40,7 @@ export { listUsers, listGroups } from "./api/directory.js";
 export { probeConnection, getApiClient, clearClientCache } from "./api/client.js";
 
 // Core utilities
-export { startGateway, stopGateway, getBotOpenId } from "./core/gateway.js";
+export { startGateway, stopGateway, getBotOpenId, getBotName } from "./core/gateway.js";
 
 export {
   parseMessageEvent,

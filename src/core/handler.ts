@@ -27,6 +27,7 @@ export interface MessageHandlerParams {
   cfg: ClawdbotConfig;
   event: MessageReceivedEvent;
   botOpenId?: string;
+  botName?: string;
   runtime?: RuntimeEnv;
   chatHistories?: Map<string, HistoryEntry[]>;
 }
@@ -36,7 +37,7 @@ export interface MessageHandlerParams {
 // ============================================================================
 
 export async function handleMessage(params: MessageHandlerParams): Promise<void> {
-  const { cfg, event, botOpenId, runtime, chatHistories } = params;
+  const { cfg, event, botOpenId, botName, runtime, chatHistories } = params;
   const feishuCfg = cfg.channels?.feishu as Config | undefined;
   const log = runtime?.log ?? console.log;
   const error = runtime?.error ?? console.error;
@@ -141,6 +142,11 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
 
     const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(cfg);
 
+    // Build bot identity context for agent clarity
+    const botIdentity = botName && botOpenId
+      ? `[You are "${botName}" (${botOpenId}). Other @[Name](id) mentions are different users, not you.]\n\n`
+      : "";
+
     // Build message body
     let messageBody = parsed.content;
     if (quotedContent) {
@@ -152,7 +158,7 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
       from: isGroup ? parsed.chatId : parsed.senderOpenId,
       timestamp: new Date(),
       envelope: envelopeOptions,
-      body: messageBody,
+      body: botIdentity + messageBody,
     });
 
     let combinedBody = body;

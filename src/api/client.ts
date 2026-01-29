@@ -105,9 +105,11 @@ export async function probeConnection(config: Config | undefined): Promise<Probe
   try {
     const client = getApiClient(config);
 
-    // Use bot info endpoint to verify credentials
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response = (await (client as any).bot.botInfo()) as {
+    // Use bot info endpoint to verify credentials and get bot identity
+    const response = (await client.request({
+      method: "GET",
+      url: "/open-apis/bot/v3/info",
+    })) as {
       code?: number;
       msg?: string;
       bot?: {

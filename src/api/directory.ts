@@ -208,7 +208,7 @@ export async function getUserByUnionId(
       return null;
     }
 
-    const name = user.name ?? user.display_name;
+    const name = user.name ?? user.en_name ?? user.nickname;
     const result: DirectoryUser = {
       kind: "user",
       id: user.open_id ?? unionId,

@@ -2,8 +2,6 @@
 
 **Turn Feishu into your AI super-gateway.** A production-grade Feishu/Lark channel plugin for [OpenClaw](https://openclaw.ai) — the brilliant AI agent framework.
 
-> Forked from [samzong/clawdbot-plugin-feishu](https://github.com/samzong/clawdbot-plugin-feishu). Thanks to the original author for the foundation.
-
 ## Features
 
 - **Human-like Message Processing** — Bot reads all accumulated messages before responding, just like a human catching up on a conversation
@@ -265,3 +263,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 ## License
 
 [MIT](LICENSE)
+
+## Acknowledgments
+
+Inspired by [samzong/moltbot-channel-feishu](https://github.com/samzong/moltbot-channel-feishu).

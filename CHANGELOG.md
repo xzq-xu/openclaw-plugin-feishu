@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-> This project is forked from [samzong/clawdbot-plugin-feishu](https://github.com/samzong/clawdbot-plugin-feishu). Thanks to the original author for the foundation.
+> Inspired by [samzong/moltbot-channel-feishu](https://github.com/samzong/moltbot-channel-feishu).
 
 ## [0.2.1] - 2026-01-31
 

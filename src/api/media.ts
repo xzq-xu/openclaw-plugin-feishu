@@ -119,8 +119,8 @@ function resolveFilePath(inputPath: string): string | null {
     path.resolve(process.env["HOME"] ?? "", "workspaces", cleanPath),
     // Priority 5: Home directory
     path.resolve(process.env["HOME"] ?? "", cleanPath),
-    // Priority 6: Clawdbot extensions directory
-    path.resolve(process.env["HOME"] ?? "", ".clawdbot", cleanPath),
+    // Priority 6: OpenClaw extensions directory
+    path.resolve(process.env["HOME"] ?? "", ".openclaw", cleanPath),
   ];
 
   // If input is absolute path, prepend it to search list
@@ -281,7 +281,7 @@ export async function uploadFile(
 // ============================================================================
 
 /**
- * Download an image by image_key.
+ * Download an image by image_key (only works for bot's own uploads).
  *
  * @throws Error if download fails
  */
@@ -297,6 +297,36 @@ export async function downloadImage(
   } as Record<string, unknown>)) as unknown;
 
   return normalizeBinaryResponse(response);
+}
+
+/**
+ * Download a message resource (image, file, video) from a user's message.
+ * This is the correct API to download resources from user-sent messages.
+ * Note: Audio messages should use type "file", not "audio".
+ *
+ * @throws Error if download fails
+ */
+export async function downloadMessageResource(
+  config: Config,
+  params: { messageId: string; fileKey: string; type: "image" | "file" | "video" }
+): Promise<Buffer> {
+  const client = getApiClient(config);
+  
+  const response = await client.im.messageResource.get({
+    params: { type: params.type },
+    path: {
+      message_id: params.messageId,
+      file_key: params.fileKey,
+    },
+  });
+
+  // The response has getReadableStream() method
+  if (response && typeof response.getReadableStream === "function") {
+    const stream = response.getReadableStream();
+    return readStreamToBuffer(stream);
+  }
+
+  throw new Error("Download failed: unexpected response format");
 }
 
 /**

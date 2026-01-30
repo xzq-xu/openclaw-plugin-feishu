@@ -74,8 +74,8 @@ export function listGroupsFromConfig(
 
 const userCache = new Map<string, DirectoryUser>();
 
-function logLookup(config: Config, message: string): void {
-  if (config.debugRawEvents) {
+function logLookup(config: Config, message: string, alwaysLog = false): void {
+  if (config.debugRawEvents || alwaysLog) {
     console.log(message);
   }
 }
@@ -96,7 +96,14 @@ interface GetUserResponse {
       user_id?: string;
       union_id?: string;
       name?: string;
-      display_name?: string;
+      en_name?: string;
+      nickname?: string;
+      avatar?: {
+        avatar_72?: string;
+        avatar_240?: string;
+        avatar_640?: string;
+        avatar_origin?: string;
+      };
     };
   };
 }
@@ -111,15 +118,18 @@ export async function getUserByOpenId(
 ): Promise<DirectoryUser | null> {
   const cached = userCache.get(openId);
   if (cached) {
+    logLookup(config, `[feishu] getUserByOpenId cache hit: ${openId} -> ${cached.name}`);
     return cached;
   }
 
   const credentials = resolveCredentials(config);
   if (!credentials) {
+    logLookup(config, `[feishu] getUserByOpenId: no credentials available`, true);
     return null;
   }
 
   try {
+    logLookup(config, `[feishu] getUserByOpenId: fetching user info for ${openId}`);
     const client = getApiClient(config);
     const response = (await client.contact.user.get({
       path: { user_id: openId },
@@ -127,31 +137,32 @@ export async function getUserByOpenId(
     })) as GetUserResponse;
 
     if (response.code !== 0) {
-      logLookup(
-        config,
+      // Always log API errors to help with debugging permission issues
+      console.warn(
         `[feishu] getUserByOpenId failed: code=${response.code ?? "unknown"} msg=${
           response.msg ?? "unknown"
-        }`
+        } (open_id=${openId}). Check if 'contact:user.base:readonly' permission is enabled.`
       );
       return null;
     }
 
     const user = response.data?.user;
     if (!user) {
-      logLookup(config, "[feishu] getUserByOpenId failed: empty user payload");
+      logLookup(config, "[feishu] getUserByOpenId failed: empty user payload", true);
       return null;
     }
 
-    const name = user.name ?? user.display_name;
+    const name = user.name ?? user.en_name ?? user.nickname;
     const result: DirectoryUser = {
       kind: "user",
       id: user.open_id ?? openId,
       name: name || undefined,
     };
     userCache.set(openId, result);
+    logLookup(config, `[feishu] getUserByOpenId success: ${openId} -> ${name}`);
     return result;
   } catch (error) {
-    logLookup(config, `[feishu] getUserByOpenId exception: ${formatLookupError(error)}`);
+    console.warn(`[feishu] getUserByOpenId exception: ${formatLookupError(error)} (open_id=${openId})`);
     return null;
   }
 }

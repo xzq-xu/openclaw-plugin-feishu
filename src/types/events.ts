@@ -40,6 +40,12 @@ export interface MessageMention {
 
 /** im.message.receive_v1 event data */
 export interface MessageReceivedEvent {
+  schema?: string;
+  event_id?: string;
+  create_time?: string;
+  event_type?: string;
+  tenant_key?: string;
+  app_id?: string;
   sender: MessageSender;
   message: MessagePayload;
 }

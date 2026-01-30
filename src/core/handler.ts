@@ -11,16 +11,162 @@ import {
   DEFAULT_GROUP_HISTORY_LIMIT,
 } from "openclaw/plugin-sdk";
 
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import crypto from "node:crypto";
+
 import type { Config } from "../config/schema.js";
 import type { MessageReceivedEvent } from "../types/index.js";
 import type { ParsedMessage } from "../types/index.js";
 import type { BatchProcessor, FlushParams } from "./batch-processor.js";
 import { parseMessageEvent } from "./parser.js";
-import { checkGroupPolicy, shouldRequireMention, matchAllowlist } from "./policy.js";
+import { checkGroupPolicy, shouldRequireMention } from "./policy.js";
 import { createReplyDispatcher } from "./reply-dispatcher.js";
-import { getMessage } from "../api/messages.js";
+import { getMessage, sendTextMessage } from "../api/messages.js";
+import { downloadMessageResource } from "../api/media.js";
 import { getUserByOpenId, getUserByUnionId } from "../api/directory.js";
 import { getRuntime } from "./runtime.js";
+import { matchAllowlist as matchAllowlistPolicy } from "./policy.js";
+
+// ============================================================================
+// Media Handling
+// ============================================================================
+
+interface MediaInfo {
+  path: string;
+  contentType: string;
+}
+
+/**
+ * Detect content type from buffer magic bytes.
+ */
+function detectContentType(buffer: Buffer, fileName?: string): string {
+  // Check magic bytes
+  if (buffer[0] === 0x89 && buffer[1] === 0x50) return "image/png";
+  if (buffer[0] === 0x47 && buffer[1] === 0x49) return "image/gif";
+  if (buffer[0] === 0x52 && buffer[1] === 0x49) return "image/webp";
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8) return "image/jpeg";
+  if (buffer[0] === 0x25 && buffer[1] === 0x50) return "application/pdf";
+  // Ogg container (used for Opus audio)
+  if (buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53) {
+    return "audio/ogg";
+  }
+  
+  // Check file extension
+  if (fileName) {
+    const ext = path.extname(fileName).toLowerCase();
+    const extMap: Record<string, string> = {
+      ".txt": "text/plain",
+      ".json": "application/json",
+      ".pdf": "application/pdf",
+      ".doc": "application/msword",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".xls": "application/vnd.ms-excel",
+      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".mp3": "audio/mpeg",
+      ".mp4": "video/mp4",
+      ".wav": "audio/wav",
+      ".opus": "audio/opus",
+      ".ogg": "audio/ogg",
+    };
+    if (extMap[ext]) return extMap[ext];
+  }
+  
+  return "application/octet-stream";
+}
+
+/**
+ * Get file extension from content type.
+ */
+function getExtension(contentType: string, fileName?: string): string {
+  // Use original file extension if available
+  if (fileName) {
+    const ext = path.extname(fileName);
+    if (ext) return ext;
+  }
+  
+  const extMap: Record<string, string> = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "text/plain": ".txt",
+    "application/json": ".json",
+    "application/pdf": ".pdf",
+    "audio/opus": ".opus",
+    "audio/ogg": ".ogg",
+    "audio/mpeg": ".mp3",
+    "audio/wav": ".wav",
+    "video/mp4": ".mp4",
+  };
+  return extMap[contentType] ?? "";
+}
+
+/**
+ * Get media directory from config or use system temp directory.
+ */
+function getMediaDir(feishuCfg: Config): string {
+  if (feishuCfg.mediaDir) {
+    // Expand ~ to home directory
+    if (feishuCfg.mediaDir.startsWith("~")) {
+      return feishuCfg.mediaDir.replace("~", os.homedir());
+    }
+    return feishuCfg.mediaDir;
+  }
+  // Default: system temp directory
+  return path.join(os.tmpdir(), "openclaw-feishu-media");
+}
+
+/**
+ * Download and save media from Feishu to a file.
+ * Uses messageResource API for user-sent messages.
+ * Save location is configurable via `mediaDir` config option.
+ */
+async function downloadAndSaveMedia(
+  feishuCfg: Config,
+  messageId: string,
+  fileKey: string,
+  resourceType: "image" | "file",
+  log: (msg: string) => void,
+  originalFileName?: string
+): Promise<MediaInfo | null> {
+  try {
+    log(`[feishu] Downloading ${resourceType}: ${fileKey} from message ${messageId}`);
+    const buffer = await downloadMessageResource(feishuCfg, {
+      messageId,
+      fileKey,
+      type: resourceType,
+    });
+    
+    const contentType = detectContentType(buffer, originalFileName);
+    const ext = getExtension(contentType, originalFileName);
+    
+    // Get media directory from config or use default temp directory
+    const mediaDir = getMediaDir(feishuCfg);
+    await fs.mkdir(mediaDir, { recursive: true });
+    
+    // Use original filename or generate one
+    const baseName = originalFileName 
+      ? path.basename(originalFileName, path.extname(originalFileName))
+      : crypto.randomUUID();
+    const fileName = `${baseName}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+    const filePath = path.join(mediaDir, fileName);
+    await fs.writeFile(filePath, buffer);
+    
+    log(`[feishu] Saved ${resourceType} to: ${filePath} (${contentType}, ${buffer.length} bytes)`);
+    
+    return { path: filePath, contentType };
+  } catch (err) {
+    log(`[feishu] Failed to download ${resourceType}: ${String(err)}`);
+    return null;
+  }
+}
 
 // ============================================================================
 // Types
@@ -147,13 +293,59 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
       return;
     }
   } else {
+    // DM policy check with pairing support
     const dmPolicy = feishuCfg?.dmPolicy ?? "pairing";
-    const allowFrom = feishuCfg?.allowFrom ?? [];
 
-    if (dmPolicy === "allowlist") {
-      const match = matchAllowlist(allowFrom as (string | number)[], parsed.senderOpenId);
-      if (!match) {
-        log(`Sender ${parsed.senderOpenId} not in DM allowlist`);
+    if (dmPolicy !== "open") {
+      const core = getRuntime() as PluginRuntime;
+      
+      // Merge config allowFrom with store allowFrom
+      const configAllowFrom = (feishuCfg?.allowFrom ?? []).map((entry) => String(entry));
+      const storeAllowFrom = await core.channel.pairing
+        .readAllowFromStore("feishu")
+        .catch(() => []);
+      const effectiveAllowFrom = [...configAllowFrom, ...storeAllowFrom]
+        .map((entry) => String(entry).trim())
+        .filter(Boolean);
+
+      // Check if sender is in allowlist
+      const match = matchAllowlistPolicy(
+        effectiveAllowFrom as (string | number)[],
+        parsed.senderOpenId,
+        parsed.senderName
+      );
+
+      if (!match.allowed) {
+        if (dmPolicy === "pairing") {
+          // Create pairing request
+          const { code, created } = await core.channel.pairing.upsertPairingRequest({
+            channel: "feishu",
+            id: parsed.senderOpenId,
+            meta: { name: parsed.senderName },
+          });
+
+          log(`[feishu] pairing request sender=${parsed.senderOpenId} created=${created}`);
+
+          if (created) {
+            // Send pairing code to user
+            try {
+              const pairingMessage = core.channel.pairing.buildPairingReply({
+                channel: "feishu",
+                idLine: `Your Feishu user ID: ${parsed.senderOpenId}`,
+                code,
+              });
+              await sendTextMessage(feishuCfg, {
+                to: parsed.chatId,
+                text: pairingMessage,
+              });
+              log(`[feishu] pairing code sent to ${parsed.senderOpenId}`);
+            } catch (err) {
+              runtime?.error?.(`[feishu] pairing reply failed: ${String(err)}`);
+            }
+          }
+        } else {
+          log(`Sender ${parsed.senderOpenId} not in DM allowlist (dmPolicy=${dmPolicy})`);
+        }
         return;
       }
     }
@@ -228,16 +420,37 @@ async function dispatchToAgent(params: DispatchParams): Promise<void> {
       },
     });
 
-    const preview = parsed.content.replace(/\s+/g, " ").slice(0, 160);
     const senderLabel = parsed.senderName ?? parsed.senderOpenId;
-    const inboundLabel = isGroup
-      ? `Feishu message in group ${parsed.chatId}`
-      : `Feishu DM from ${senderLabel}`;
 
-    core.system.enqueueSystemEvent(`${inboundLabel}: ${preview}`, {
-      sessionKey: route.sessionKey,
-      contextKey: `feishu:message:${parsed.chatId}:${parsed.messageId}`,
-    });
+    // Download media if present (image, file, or audio)
+    let mediaInfo: MediaInfo | null = null;
+    if (parsed.imageKey) {
+      mediaInfo = await downloadAndSaveMedia(
+        feishuCfg,
+        parsed.messageId,
+        parsed.imageKey,
+        "image",
+        log
+      );
+    } else if (parsed.fileKey) {
+      // Feishu messageResource API uses "file" type for both files and audio
+      // Audio messages should use "file" type, not "audio"
+      let fileName = parsed.fileName;
+      
+      if (parsed.contentType === "audio") {
+        // Feishu audio is Opus format
+        fileName = fileName ?? "voice.opus";
+      }
+      
+      mediaInfo = await downloadAndSaveMedia(
+        feishuCfg,
+        parsed.messageId,
+        parsed.fileKey,
+        "file",  // Always use "file" type for messageResource API
+        log,
+        fileName
+      );
+    }
 
     let quotedContent: string | undefined;
     if (parsed.parentId) {
@@ -322,6 +535,13 @@ async function dispatchToAgent(params: DispatchParams): Promise<void> {
       CommandAuthorized: true,
       OriginatingChannel: "feishu" as const,
       OriginatingTo: feishuTo,
+      // Media fields (following Telegram pattern)
+      MediaPath: mediaInfo?.path,
+      MediaType: mediaInfo?.contentType,
+      MediaUrl: mediaInfo?.path,
+      MediaPaths: mediaInfo ? [mediaInfo.path] : undefined,
+      MediaUrls: mediaInfo ? [mediaInfo.path] : undefined,
+      MediaTypes: mediaInfo ? [mediaInfo.contentType] : undefined,
     });
 
     const { dispatcher, replyOptions, markDispatchIdle } = createReplyDispatcher({

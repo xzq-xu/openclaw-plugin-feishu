@@ -1,6 +1,6 @@
-# clawdbot-plugin-feishu
+# openclaw-plugin-feishu
 
-**Turn Feishu into your AI super-gateway.** A production-grade Feishu/Lark channel plugin for [Moltbot](https://molt.bot) — the brilliant AI agent framework.
+**Turn Feishu into your AI super-gateway.** A production-grade Feishu/Lark channel plugin for [OpenClaw](https://openclaw.ai) — the brilliant AI agent framework.
 
 > Forked from [samzong/clawdbot-plugin-feishu](https://github.com/samzong/clawdbot-plugin-feishu). Thanks to the original author for the foundation.
 
@@ -18,15 +18,15 @@
 
 ```bash
 # npm
-moltbot plugin install @xzq_xu/feishu
+openclaw plugins install @xzq-xu/feishu
 
 # GitHub (for testing)
-moltbot plugin install github:xzq-xu/clawdbot-plugin-feishu
+openclaw plugins install github:xzq-xu/openclaw-plugin-feishu
 ```
 
 ## Configure
 
-Edit `~/.clawdbot/clawdbot.json`:
+Edit `~/.openclaw/openclaw.json`:
 
 ```json
 {
@@ -63,6 +63,64 @@ export FEISHU_APP_SECRET="xxx"
 | `groupPolicy`    | `"open"` \| `"allowlist"` \| `"disabled"` | `"allowlist"` | Group chat access policy                               |
 | `groupAllowFrom` | string[]                                  | `[]`          | Group IDs allowed (when `groupPolicy: "allowlist"`)    |
 | `requireMention` | boolean                                   | `true`        | Require @mention in groups                             |
+
+### Media Options
+
+| Field      | Type   | Default                      | Description                                |
+| ---------- | ------ | ---------------------------- | ------------------------------------------ |
+| `mediaDir` | string | System temp dir (`/tmp/...`) | Directory to save downloaded media files   |
+| `mediaMaxMb` | number | -                          | Maximum media file size in MB              |
+
+The plugin downloads images, files, and audio from Feishu messages. By default, files are saved to the system temp directory (e.g., `/tmp/openclaw-feishu-media/`). You can customize this:
+
+```json
+{
+  "channels": {
+    "feishu": {
+      "mediaDir": "~/.openclaw/media/feishu"
+    }
+  }
+}
+```
+
+Supported media types:
+- **Images**: PNG, JPEG, GIF, WebP
+- **Files**: PDF, DOC, TXT, etc.
+- **Audio**: Opus/Ogg (Feishu voice messages)
+
+### Streaming Message Options
+
+| Field                            | Type    | Default | Description                                      |
+| -------------------------------- | ------- | ------- | ------------------------------------------------ |
+| `blockStreamingCoalesce.enabled` | boolean | `false` | Enable streaming message coalescing              |
+| `blockStreamingCoalesce.minDelayMs` | number | -    | Minimum delay before sending coalesced message   |
+| `blockStreamingCoalesce.maxDelayMs` | number | -    | Maximum delay before forcing message send        |
+| `streamingCard.enabled`          | boolean | `false` | Enable streaming card (shows "typing" indicator) |
+| `streamingCard.title`            | string  | -       | Title shown on the streaming card                |
+| `textChunkLimit`                 | number  | `4000`  | Max characters per message chunk                 |
+
+Example with streaming enabled:
+
+```json
+{
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "appId": "cli_xxx",
+      "appSecret": "xxx",
+      "blockStreamingCoalesce": {
+        "enabled": true,
+        "minDelayMs": 500,
+        "maxDelayMs": 2000
+      },
+      "streamingCard": {
+        "enabled": true,
+        "title": "正在思考..."
+      }
+    }
+  }
+}
+```
 
 ## How It Works
 

@@ -1,16 +1,16 @@
 {
-  "name": "@xzq_xu/feishu",
-  "version": "0.1.9",
+  "name": "@xzq-xu/feishu",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Production-grade Feishu/Lark channel plugin for Clawdbot",
+  "description": "Production-grade Feishu/Lark channel plugin for OpenClaw",
   "license": "MIT",
   "author": "xzq-xu",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xzq-xu/clawdbot-plugin-feishu.git"
+    "url": "git+https://github.com/xzq-xu/openclaw-plugin-feishu.git"
   },
   "keywords": [
-    "clawdbot",
+    "openclaw",
     "feishu",
     "lark",
     "plugin",
@@ -23,8 +23,6 @@
   },
   "files": [
     "src",
-    "moltbot.plugin.json",
-    "clawdbot.plugin.json",
     "openclaw.plugin.json"
   ],
   "scripts": {
@@ -40,24 +38,7 @@
     "clean": "rm -rf dist",
     "prerelease": "npm run lint && npm run build && npm run test && node --check dist/index.js && echo '✅ All checks passed'",
     "dev:local": "tsx scripts/local-test.ts",
-    "version": "node scripts/sync-version.js && git add moltbot.plugin.json clawdbot.plugin.json"
-  },
-  "clawdbot": {
-    "extensions": [
-      "./src/index.ts"
-    ],
-    "channel": {
-      "id": "feishu",
-      "label": "Feishu",
-      "selectionLabel": "Feishu",
-      "docsPath": "/channels/feishu",
-      "docsLabel": "feishu",
-      "blurb": "Feishu enterprise messaging.",
-      "aliases": [
-        "lark"
-      ],
-      "order": 70
-    }
+    "version": "node scripts/sync-version.js && git add openclaw.plugin.json"
   },
   "openclaw": {
     "extensions": [
@@ -79,7 +60,7 @@
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.30.0",
     "@sinclair/typebox": "^0.34.0",
-    "clawdbot": "^2026.1.24",
+    "openclaw": "^2026.1.24",
     "zod": "^3.23.0"
   },
   "devDependencies": {
@@ -98,7 +79,7 @@
     "vitest": "^2.0.0"
   },
   "peerDependencies": {
-    "clawdbot": ">=2026.1.24"
+    "openclaw": ">=2026.1.24"
   },
   "engines": {
     "node": ">=20.0.0"

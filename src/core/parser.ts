@@ -96,32 +96,67 @@ export function parseMessageContent(content: string, messageType: string): strin
         break;
 
       case "post":
-        // Rich text post - try to extract text content
+        // Rich text post - extract all content including images
         if ("content" in obj && Array.isArray(obj.content)) {
-          const texts: string[] = [];
+          const parts: string[] = [];
           for (const paragraph of obj.content) {
             if (Array.isArray(paragraph)) {
+              const paragraphParts: string[] = [];
               for (const element of paragraph) {
-                if (
-                  typeof element === "object" &&
-                  element !== null &&
-                  "tag" in element &&
-                  element.tag === "text" &&
-                  "text" in element
-                ) {
-                  texts.push(String((element as { text: unknown }).text));
+                if (typeof element === "object" && element !== null && "tag" in element) {
+                  const el = element as Record<string, unknown>;
+                  if (el.tag === "text" && "text" in el) {
+                    paragraphParts.push(String(el.text));
+                  } else if (el.tag === "img" && "image_key" in el) {
+                    paragraphParts.push(`[图片: ${el.image_key}]`);
+                  } else if (el.tag === "a" && "text" in el && "href" in el) {
+                    paragraphParts.push(`${el.text}(${el.href})`);
+                  } else if (el.tag === "at" && "user_id" in el) {
+                    const userName = "user_name" in el ? String(el.user_name) : "用户";
+                    paragraphParts.push(`@${userName}`);
+                  } else if (el.tag === "emotion" && "emoji_type" in el) {
+                    paragraphParts.push(`[${el.emoji_type}]`);
+                  }
                 }
+              }
+              if (paragraphParts.length > 0) {
+                parts.push(paragraphParts.join(""));
               }
             }
           }
-          if (texts.length > 0) {
-            return texts.join("");
+          if (parts.length > 0) {
+            return parts.join("\n");
           }
         }
-        // Try zh_cn title
+        // Try zh_cn content structure (alternative format)
         if ("zh_cn" in obj && typeof obj.zh_cn === "object" && obj.zh_cn !== null) {
           const zhCn = obj.zh_cn as Record<string, unknown>;
-          if ("title" in zhCn) {
+          if ("content" in zhCn && Array.isArray(zhCn.content)) {
+            const parts: string[] = [];
+            for (const paragraph of zhCn.content as unknown[]) {
+              if (Array.isArray(paragraph)) {
+                const paragraphParts: string[] = [];
+                for (const element of paragraph) {
+                  if (typeof element === "object" && element !== null && "tag" in element) {
+                    const el = element as Record<string, unknown>;
+                    if (el.tag === "text" && "text" in el) {
+                      paragraphParts.push(String(el.text));
+                    } else if (el.tag === "img" && "image_key" in el) {
+                      paragraphParts.push(`[图片: ${el.image_key}]`);
+                    }
+                  }
+                }
+                if (paragraphParts.length > 0) {
+                  parts.push(paragraphParts.join(""));
+                }
+              }
+            }
+            if (parts.length > 0) {
+              const title = "title" in zhCn && zhCn.title ? `${zhCn.title}\n` : "";
+              return title + parts.join("\n");
+            }
+          }
+          if ("title" in zhCn && zhCn.title) {
             return `[富文本: ${zhCn.title}]`;
           }
         }
@@ -176,7 +211,8 @@ export function isBotMentioned(
 
 /**
  * Process mentions in message content.
- * Removes bot mentions completely, preserves non-bot mentions in Feishu native format.
+ * Bot mentions are replaced with plain name (preserving semantic meaning),
+ * non-bot mentions are converted to Feishu native format.
  *
  * Feishu native format: <at user_id="open_id">Name</at>
  */
@@ -195,10 +231,13 @@ export function stripMentions(
     const isBotMention = botOpenId && mentionOpenId === botOpenId;
 
     if (isBotMention) {
-      // Remove bot mentions entirely
-      const namePattern = new RegExp(`@${escapeRegex(mention.name)}\\s*`, "g");
-      result = result.replace(namePattern, "").trim();
-      result = result.replace(new RegExp(escapeRegex(mention.key), "g"), "").trim();
+      // Replace bot mentions with <at user_id="self">你</at> (preserve semantic meaning)
+      // e.g., "交给@机器人来做" → "交给<at user_id="self">你</at>来做"
+      // Uses "self" as special marker, consistent format with other mentions
+      const replacement = `<at user_id="self">你</at>`;
+      const namePattern = new RegExp(`@${escapeRegex(mention.name)}`, "g");
+      result = result.replace(namePattern, replacement);
+      result = result.replace(new RegExp(escapeRegex(mention.key), "g"), replacement);
     } else if (mentionOpenId) {
       // Replace with Feishu native format for non-bot mentions
       const replacement = `<at user_id="${mentionOpenId}">${mention.name}</at>`;
@@ -206,10 +245,10 @@ export function stripMentions(
       result = result.replace(namePattern, replacement);
       result = result.replace(new RegExp(escapeRegex(mention.key), "g"), replacement);
     } else {
-      // Remove mentions without open_id
-      const namePattern = new RegExp(`@${escapeRegex(mention.name)}\\s*`, "g");
-      result = result.replace(namePattern, "").trim();
-      result = result.replace(new RegExp(escapeRegex(mention.key), "g"), "").trim();
+      // Replace mentions without open_id with plain name
+      const namePattern = new RegExp(`@${escapeRegex(mention.name)}`, "g");
+      result = result.replace(namePattern, mention.name);
+      result = result.replace(new RegExp(escapeRegex(mention.key), "g"), mention.name);
     }
   }
 
@@ -267,6 +306,7 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
 
   // Extract media keys from message content
   let imageKey: string | undefined;
+  const imageKeys: string[] = [];
   let fileKey: string | undefined;
   let fileName: string | undefined;
 
@@ -274,14 +314,66 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
     const parsed: unknown = JSON.parse(message.content);
     if (typeof parsed === "object" && parsed !== null) {
       const obj = parsed as Record<string, unknown>;
+      
+      // Direct image message
       if ("image_key" in obj && typeof obj.image_key === "string") {
         imageKey = obj.image_key;
+        imageKeys.push(obj.image_key);
       }
+      
+      // File/media message
       if ("file_key" in obj && typeof obj.file_key === "string") {
         fileKey = obj.file_key;
       }
       if ("file_name" in obj && typeof obj.file_name === "string") {
         fileName = obj.file_name;
+      }
+      
+      // Rich text (post) message - extract all images
+      if ("content" in obj && Array.isArray(obj.content)) {
+        for (const paragraph of obj.content) {
+          if (Array.isArray(paragraph)) {
+            for (const element of paragraph) {
+              if (
+                typeof element === "object" &&
+                element !== null &&
+                "tag" in element &&
+                (element as Record<string, unknown>).tag === "img" &&
+                "image_key" in element &&
+                typeof (element as Record<string, unknown>).image_key === "string"
+              ) {
+                const key = (element as Record<string, unknown>).image_key as string;
+                imageKeys.push(key);
+                if (!imageKey) imageKey = key; // First image as primary
+              }
+            }
+          }
+        }
+      }
+      
+      // zh_cn content structure (alternative format)
+      if ("zh_cn" in obj && typeof obj.zh_cn === "object" && obj.zh_cn !== null) {
+        const zhCn = obj.zh_cn as Record<string, unknown>;
+        if ("content" in zhCn && Array.isArray(zhCn.content)) {
+          for (const paragraph of zhCn.content as unknown[]) {
+            if (Array.isArray(paragraph)) {
+              for (const element of paragraph) {
+                if (
+                  typeof element === "object" &&
+                  element !== null &&
+                  "tag" in element &&
+                  (element as Record<string, unknown>).tag === "img" &&
+                  "image_key" in element &&
+                  typeof (element as Record<string, unknown>).image_key === "string"
+                ) {
+                  const key = (element as Record<string, unknown>).image_key as string;
+                  imageKeys.push(key);
+                  if (!imageKey) imageKey = key;
+                }
+              }
+            }
+          }
+        }
       }
     }
   } catch {
@@ -314,13 +406,21 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
 
 /**
  * Convert @[Name](open_id) format to Feishu native <at user_id="open_id">Name</at> format.
- * This provides backward compatibility for any code still using the old format.
+ * Also replaces <at user_id="self"> with the bot's actual open_id.
  *
  * Note: The preferred approach is to use Feishu native format directly.
  */
-export function formatMentionsForFeishu(text: string): string {
+export function formatMentionsForFeishu(text: string, botOpenId?: string): string {
+  // Convert @[Name](open_id) to Feishu native format
   const mentionPattern = /@\[([^\]]+)\]\(([^)]+)\)/g;
-  return text.replace(mentionPattern, (_match, name: string, openId: string) => {
+  let result = text.replace(mentionPattern, (_match, name: string, openId: string) => {
     return `<at user_id="${openId}">${name}</at>`;
   });
+
+  // Replace <at user_id="self"> with bot's actual open_id
+  if (botOpenId) {
+    result = result.replace(/<at user_id="self">/g, `<at user_id="${botOpenId}">`);
+  }
+
+  return result;
 }

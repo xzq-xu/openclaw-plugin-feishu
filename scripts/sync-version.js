@@ -11,12 +11,10 @@ const root = join(__dirname, '..');
 
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
-// Sync both manifest files
-for (const name of ['moltbot.plugin.json', 'clawdbot.plugin.json']) {
-    const path = join(root, name);
-    const manifest = JSON.parse(readFileSync(path, 'utf8'));
-    manifest.version = pkg.version;
-    writeFileSync(path, JSON.stringify(manifest, null, 4) + '\n');
-}
+// Sync manifest file
+const manifestPath = join(root, 'openclaw.plugin.json');
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+manifest.version = pkg.version;
+writeFileSync(manifestPath, JSON.stringify(manifest, null, 4) + '\n');
 
 console.log(`Synced version to ${pkg.version}`);

@@ -137,6 +137,19 @@ declare module "openclaw/plugin-sdk" {
         convertMarkdownTables(text: string, mode: string): string;
         chunkTextWithMode(text: string, limit: number, mode: string): string[];
       };
+      pairing: {
+        readAllowFromStore(channel: string): Promise<string[]>;
+        upsertPairingRequest(params: {
+          channel: string;
+          id: string;
+          meta?: { name?: string };
+        }): Promise<{ code: string; created: boolean }>;
+        buildPairingReply(params: {
+          channel: string;
+          idLine: string;
+          code: string;
+        }): string;
+      };
     };
     system: {
       enqueueSystemEvent(

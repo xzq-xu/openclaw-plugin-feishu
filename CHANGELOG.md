@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 > This project is forked from [samzong/clawdbot-plugin-feishu](https://github.com/samzong/clawdbot-plugin-feishu). Thanks to the original author for the foundation.
 
+## [0.2.0] - 2026-01-31
+
+### Added
+
+- **Media Download Support**: Full support for receiving images, files, and audio from Feishu
+  - Images: PNG, JPEG, GIF, WebP - downloaded and passed to OpenClaw for multi-modal processing
+  - Files: PDF, DOC, TXT, etc. - downloaded with original filename preserved
+  - Audio: Opus/Ogg voice messages - downloaded for agent processing
+- **Configurable Media Directory**: New `mediaDir` config option
+  - Default: System temp directory (`/tmp/openclaw-feishu-media/`)
+  - Supports `~` expansion for home directory paths
+- **Rich Text (Post) Message Parsing**: Proper handling of Feishu rich text messages
+  - Extracts text, images, links, mentions from post content
+  - First image in post is downloaded for multi-modal processing
+
+### Changed
+
+- **Rebranded to OpenClaw**: Updated package name and all references from Clawdbot to OpenClaw
+  - Package: `@xzq-xu/feishu`
+  - Removed legacy `clawdbot.plugin.json` and `moltbot.plugin.json`
+- **Streaming Card Title**: Now optional - remove `title` from config for cleaner message preview
+
+### Fixed
+
+- **Message Resource API**: Use correct `im.messageResource.get` API for user-sent media
+  - Previous `im.image.get` only worked for bot-uploaded images
+- **Content Type Detection**: Improved MIME type detection from magic bytes
+  - Added support for Ogg/Opus audio detection
+  - Better file extension mapping
+
 ## [0.1.8] - 2025-01-30
 
 ### Changed

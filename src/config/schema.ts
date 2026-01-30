@@ -65,6 +65,8 @@ export const StreamingCardSchema = z
   .object({
     enabled: z.boolean().optional(),
     title: z.string().optional(),
+    /** Update interval in ms for streaming card (default: 200ms) */
+    updateIntervalMs: z.number().int().positive().optional(),
   })
   .strict()
   .optional();
@@ -126,6 +128,8 @@ export const ConfigSchema = z
 
     // Media
     mediaMaxMb: z.number().positive().optional(),
+    /** Directory to save downloaded media files. Defaults to system temp directory. */
+    mediaDir: z.string().optional(),
 
     // UI
     heartbeat: HeartbeatConfigSchema,

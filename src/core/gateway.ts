@@ -20,6 +20,66 @@ const RECONNECT_MAX_DELAY_MS = 60000;
 const RECONNECT_MAX_ATTEMPTS = 20;
 
 // ============================================================================
+// Event Deduplication
+// ============================================================================
+
+const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours (Feishu's event_id uniqueness window)
+const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Cleanup every hour
+
+interface DedupEntry {
+  timestamp: number;
+}
+
+const processedEvents = new Map<string, DedupEntry>();
+let dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Check if an event has already been processed.
+ * Returns true if duplicate (should skip), false if new (should process).
+ */
+function isDuplicateEvent(eventId: string): boolean {
+  const existing = processedEvents.get(eventId);
+  if (existing) {
+    return true;
+  }
+  // Mark as processed
+  processedEvents.set(eventId, { timestamp: Date.now() });
+  return false;
+}
+
+/**
+ * Clean up old dedup entries to prevent memory leak.
+ */
+function cleanupDedupEntries(): void {
+  const now = Date.now();
+  const cutoff = now - DEDUP_WINDOW_MS;
+  for (const [eventId, entry] of processedEvents) {
+    if (entry.timestamp < cutoff) {
+      processedEvents.delete(eventId);
+    }
+  }
+}
+
+/**
+ * Start the dedup cleanup timer.
+ */
+function startDedupCleanup(): void {
+  if (dedupCleanupTimer) return;
+  dedupCleanupTimer = setInterval(cleanupDedupEntries, DEDUP_CLEANUP_INTERVAL_MS);
+}
+
+/**
+ * Stop the dedup cleanup timer.
+ */
+function stopDedupCleanup(): void {
+  if (dedupCleanupTimer) {
+    clearInterval(dedupCleanupTimer);
+    dedupCleanupTimer = null;
+  }
+  processedEvents.clear();
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -131,10 +191,21 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
   // Create event dispatcher (shared across reconnections)
   const eventDispatcher = new Lark.EventDispatcher({});
 
+  // Start dedup cleanup timer
+  startDedupCleanup();
+
   eventDispatcher.register({
     "im.message.receive_v1": async (data: unknown) => {
       try {
         const event = data as MessageReceivedEvent;
+
+        // Deduplication: skip if event already processed
+        const dedupKey = event.event_id ?? event.message?.message_id;
+        if (dedupKey && isDuplicateEvent(dedupKey)) {
+          log(`Gateway: skipping duplicate event ${dedupKey}`);
+          return;
+        }
+
         await handleMessage({
           cfg,
           event,
@@ -277,4 +348,6 @@ export async function stopGateway(): Promise<void> {
   state.chatHistories.clear();
   state.isReconnecting = false;
   state.reconnectAttempts = 0;
+  // Stop dedup cleanup timer
+  stopDedupCleanup();
 }

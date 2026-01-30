@@ -11,6 +11,7 @@ import {
 } from "openclaw/plugin-sdk";
 
 import { getRuntime } from "./runtime.js";
+import { getBotOpenId } from "./gateway.js";
 import { sendCardMessage, sendTextMessage, updateCard } from "../api/messages.js";
 import { addReaction, removeReaction, Emoji } from "../api/reactions.js";
 import { formatMentionsForFeishu } from "./parser.js";
@@ -111,10 +112,16 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
   const streamingCardConfig = safeFeishuCfg?.streamingCard;
   const streamingCardEnabled = Boolean(streamingCardConfig?.enabled);
   const streamingCardTitle = streamingCardConfig?.title;
+  const streamingUpdateIntervalMs = streamingCardConfig?.updateIntervalMs ?? 200;
   let streamingCardMessageId: string | null = null;
   let streamingCardBuffer = "";
+  let streamingLastUpdateAt = 0;
+  let streamingPendingUpdate = false;
+  let streamingUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  let streamingUpdatePromise: Promise<void> | null = null;
+
   const coalesceConfig = safeFeishuCfg?.blockStreamingCoalesce;
-  const coalesceEnabled = Boolean(coalesceConfig?.enabled);
+  const coalesceEnabled = Boolean(coalesceConfig?.enabled) && !streamingCardEnabled; // Disable coalesce when streaming card is enabled
   const coalesceMinDelayMs = coalesceConfig?.minDelayMs ?? 400;
   const coalesceMaxDelayMs = coalesceConfig?.maxDelayMs ?? 2000;
   let coalesceBuffer = "";
@@ -125,7 +132,7 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
   const sendTextPayload = async (text: string) => {
     if (!safeFeishuCfg) return;
     const converted = core.channel.text.convertMarkdownTables(text, tableMode);
-    const formattedText = formatMentionsForFeishu(converted);
+    const formattedText = formatMentionsForFeishu(converted, getBotOpenId());
     const chunks = core.channel.text.chunkTextWithMode(formattedText, textChunkLimit, chunkMode);
 
     params.runtime.log?.(`Deliver: sending ${chunks.length} chunks to ${chatId}`);
@@ -140,7 +147,7 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
 
   const buildStreamingCard = (text: string): Record<string, unknown> => {
     const converted = core.channel.text.convertMarkdownTables(text, tableMode);
-    const formattedText = formatMentionsForFeishu(converted);
+    const formattedText = formatMentionsForFeishu(converted, getBotOpenId());
     const content = formattedText.trim() ? formattedText : " ";
     const card: Record<string, unknown> = {
       config: { wide_screen_mode: true },
@@ -171,10 +178,49 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
         replyToMessageId,
       });
       streamingCardMessageId = result.messageId;
+      streamingLastUpdateAt = Date.now();
       return;
     }
 
     await updateCard(safeFeishuCfg, streamingCardMessageId, card);
+    streamingLastUpdateAt = Date.now();
+  };
+
+  /**
+   * Throttled streaming card update - ensures smooth typewriter effect
+   * - First content: send immediately
+   * - Subsequent: update at fixed intervals (default 200ms)
+   */
+  const throttledStreamingUpdate = async () => {
+    if (!streamingCardBuffer.trim()) return;
+
+    const now = Date.now();
+    const timeSinceLastUpdate = now - streamingLastUpdateAt;
+
+    // First message or enough time has passed - send immediately
+    if (!streamingCardMessageId || timeSinceLastUpdate >= streamingUpdateIntervalMs) {
+      streamingPendingUpdate = false;
+      if (streamingUpdateTimer) {
+        clearTimeout(streamingUpdateTimer);
+        streamingUpdateTimer = null;
+      }
+      await sendStreamingCard(streamingCardBuffer);
+      return;
+    }
+
+    // Schedule update for later if not already scheduled
+    if (!streamingPendingUpdate) {
+      streamingPendingUpdate = true;
+      const delay = streamingUpdateIntervalMs - timeSinceLastUpdate;
+      streamingUpdateTimer = setTimeout(() => {
+        streamingPendingUpdate = false;
+        streamingUpdateTimer = null;
+        // Chain the promise to avoid concurrent updates
+        streamingUpdatePromise = (streamingUpdatePromise ?? Promise.resolve())
+          .then(() => sendStreamingCard(streamingCardBuffer))
+          .catch((err) => params.runtime.error?.(`Streaming card update failed: ${String(err)}`));
+      }, delay);
+    }
   };
 
   const clearCoalesceTimer = () => {
@@ -238,23 +284,8 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
         // Text delivery only - media is handled by Clawdbot's outbound.sendMedia
         if (streamingCardEnabled) {
           streamingCardBuffer += text;
-          if (coalesceEnabled) {
-            coalesceBuffer += text;
-            if (coalesceFirstAt === null) {
-              coalesceFirstAt = Date.now();
-            }
-
-            const elapsed = Date.now() - coalesceFirstAt;
-            if (elapsed >= coalesceMaxDelayMs) {
-              await enqueueFlush("max-delay");
-              return;
-            }
-
-            scheduleFlush();
-            return;
-          }
-
-          await sendStreamingCard(streamingCardBuffer);
+          // Use throttled update for smooth typewriter effect
+          await throttledStreamingUpdate();
           return;
         }
 
@@ -281,6 +312,15 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
         typingCallbacks.onIdle?.();
       },
       onIdle: () => {
+        // Flush any remaining streaming card content
+        if (streamingCardEnabled && streamingCardBuffer.trim()) {
+          if (streamingUpdateTimer) {
+            clearTimeout(streamingUpdateTimer);
+            streamingUpdateTimer = null;
+          }
+          streamingPendingUpdate = false;
+          void sendStreamingCard(streamingCardBuffer);
+        }
         if (coalesceEnabled) {
           void enqueueFlush("idle");
         }

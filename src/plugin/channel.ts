@@ -19,6 +19,7 @@ import { listUsers, listGroups } from "../api/directory.js";
 import { resolveGroupToolPolicy } from "../core/policy.js";
 import { formatMentionsForFeishu } from "../core/parser.js";
 import { getRuntime } from "../core/runtime.js";
+import { getBotOpenId } from "../core/gateway.js";
 import { feishuOnboarding } from "./onboarding.js";
 
 // ============================================================================
@@ -295,7 +296,7 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
       const runtime = getRuntime();
       const tableMode = runtime.channel.text.resolveMarkdownTableMode({ cfg, channel: "feishu" });
       const tableConverted = runtime.channel.text.convertMarkdownTables(text ?? "", tableMode);
-      const convertedText = formatMentionsForFeishu(tableConverted);
+      const convertedText = formatMentionsForFeishu(tableConverted, getBotOpenId());
       const result = await sendTextMessage(feishuCfg, { to, text: convertedText });
       return { channel: "feishu", ...result };
     },
@@ -309,7 +310,7 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
       // Send text first if provided
       if (text?.trim()) {
         const mediaTableConverted = runtime.channel.text.convertMarkdownTables(text, tableMode);
-        const convertedText = formatMentionsForFeishu(mediaTableConverted);
+        const convertedText = formatMentionsForFeishu(mediaTableConverted, getBotOpenId());
         await sendTextMessage(feishuCfg, { to, text: convertedText });
       }
 
@@ -331,7 +332,7 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
         text ?? "",
         tableMode
       );
-      const convertedFallback = formatMentionsForFeishu(fallbackTableConverted);
+      const convertedFallback = formatMentionsForFeishu(fallbackTableConverted, getBotOpenId());
       const result = await sendTextMessage(feishuCfg, { to, text: convertedFallback });
       return { channel: "feishu", ...result };
     },

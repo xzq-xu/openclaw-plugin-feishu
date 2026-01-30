@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 > This project is forked from [samzong/clawdbot-plugin-feishu](https://github.com/samzong/clawdbot-plugin-feishu). Thanks to the original author for the foundation.
 
+## [0.1.1] - 2025-01-30
+
+### Fixed
+
+- **Mention Format Conversion**: `@[Name](open_id)` now correctly converts to Feishu native `<at user_id="...">` tags when sending messages
+  - Previously the format was preserved in code but not applied during `sendTextMessage()` and `editMessage()`
+  - Agent responses with mentions like `@[张三](ou_xxx)` now render as clickable @mentions in Feishu
+
 ## [0.1.0] - 2025-01-29
 
 ### Added

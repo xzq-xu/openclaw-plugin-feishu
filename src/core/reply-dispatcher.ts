@@ -105,12 +105,15 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
     cfg,
     channel: "feishu",
   });
-  const streamingCardConfig = feishuCfg?.streamingCard;
+
+  // Type assertion helper - we know feishuCfg is available when used in deliver callback
+  const safeFeishuCfg = feishuCfg as Config | undefined;
+  const streamingCardConfig = safeFeishuCfg?.streamingCard;
   const streamingCardEnabled = Boolean(streamingCardConfig?.enabled);
   const streamingCardTitle = streamingCardConfig?.title;
   let streamingCardMessageId: string | null = null;
   let streamingCardBuffer = "";
-  const coalesceConfig = feishuCfg?.blockStreamingCoalesce;
+  const coalesceConfig = safeFeishuCfg?.blockStreamingCoalesce;
   const coalesceEnabled = Boolean(coalesceConfig?.enabled);
   const coalesceMinDelayMs = coalesceConfig?.minDelayMs ?? 400;
   const coalesceMaxDelayMs = coalesceConfig?.maxDelayMs ?? 2000;
@@ -120,13 +123,14 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
   let coalesceFlushPromise: Promise<void> | null = null;
 
   const sendTextPayload = async (text: string) => {
+    if (!safeFeishuCfg) return;
     const converted = core.channel.text.convertMarkdownTables(text, tableMode);
     const formattedText = formatMentionsForFeishu(converted);
     const chunks = core.channel.text.chunkTextWithMode(formattedText, textChunkLimit, chunkMode);
 
     params.runtime.log?.(`Deliver: sending ${chunks.length} chunks to ${chatId}`);
     for (const chunk of chunks) {
-      await sendTextMessage(feishuCfg, {
+      await sendTextMessage(safeFeishuCfg, {
         to: chatId,
         text: chunk,
         replyToMessageId,
@@ -158,9 +162,10 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
   };
 
   const sendStreamingCard = async (text: string) => {
+    if (!safeFeishuCfg) return;
     const card = buildStreamingCard(text);
     if (!streamingCardMessageId) {
-      const result = await sendCardMessage(feishuCfg, {
+      const result = await sendCardMessage(safeFeishuCfg, {
         to: chatId,
         card,
         replyToMessageId,
@@ -169,7 +174,7 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
       return;
     }
 
-    await updateCard(feishuCfg, streamingCardMessageId, card);
+    await updateCard(safeFeishuCfg, streamingCardMessageId, card);
   };
 
   const clearCoalesceTimer = () => {

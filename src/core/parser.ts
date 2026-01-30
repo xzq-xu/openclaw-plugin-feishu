@@ -265,6 +265,29 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
   const content = stripMentions(rawContent, message.mentions, botOpenId);
   const mentions = extractMentions(message.mentions, botOpenId);
 
+  // Extract media keys from message content
+  let imageKey: string | undefined;
+  let fileKey: string | undefined;
+  let fileName: string | undefined;
+
+  try {
+    const parsed: unknown = JSON.parse(message.content);
+    if (typeof parsed === "object" && parsed !== null) {
+      const obj = parsed as Record<string, unknown>;
+      if ("image_key" in obj && typeof obj.image_key === "string") {
+        imageKey = obj.image_key;
+      }
+      if ("file_key" in obj && typeof obj.file_key === "string") {
+        fileKey = obj.file_key;
+      }
+      if ("file_name" in obj && typeof obj.file_name === "string") {
+        fileName = obj.file_name;
+      }
+    }
+  } catch {
+    // Keep undefined if parsing fails
+  }
+
   return {
     chatId: message.chat_id,
     messageId: message.message_id,
@@ -279,6 +302,9 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
     content,
     contentType: message.message_type,
     mentions: mentions.length > 0 ? mentions : undefined,
+    imageKey,
+    fileKey,
+    fileName,
   };
 }
 

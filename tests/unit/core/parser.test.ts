@@ -239,6 +239,95 @@ describe("parseMessageEvent", () => {
     const result = parseMessageEvent(baseEvent, "ou_bot");
     expect(result.mentions).toBeUndefined();
   });
+
+  // Media key extraction tests
+  it("extracts imageKey from image message", () => {
+    const imageEvent: MessageReceivedEvent = {
+      sender: baseEvent.sender,
+      message: {
+        ...baseEvent.message,
+        message_type: "image",
+        content: JSON.stringify({ image_key: "img_abc123" }),
+      },
+    };
+    const result = parseMessageEvent(imageEvent, "ou_bot");
+    expect(result.imageKey).toBe("img_abc123");
+    expect(result.contentType).toBe("image");
+    expect(result.content).toBe("[图片: img_abc123]");
+  });
+
+  it("extracts fileKey and fileName from file message", () => {
+    const fileEvent: MessageReceivedEvent = {
+      sender: baseEvent.sender,
+      message: {
+        ...baseEvent.message,
+        message_type: "file",
+        content: JSON.stringify({ file_key: "file_xyz789", file_name: "report.pdf" }),
+      },
+    };
+    const result = parseMessageEvent(fileEvent, "ou_bot");
+    expect(result.fileKey).toBe("file_xyz789");
+    expect(result.fileName).toBe("report.pdf");
+    expect(result.contentType).toBe("file");
+    expect(result.content).toBe("[文件: report.pdf (file_xyz789)]");
+  });
+
+  it("extracts fileKey from audio message", () => {
+    const audioEvent: MessageReceivedEvent = {
+      sender: baseEvent.sender,
+      message: {
+        ...baseEvent.message,
+        message_type: "audio",
+        content: JSON.stringify({ file_key: "audio_voice456" }),
+      },
+    };
+    const result = parseMessageEvent(audioEvent, "ou_bot");
+    expect(result.fileKey).toBe("audio_voice456");
+    expect(result.contentType).toBe("audio");
+    expect(result.content).toBe("[语音消息: audio_voice456]");
+  });
+
+  it("handles media message with both image_key and file_key", () => {
+    const mediaEvent: MessageReceivedEvent = {
+      sender: baseEvent.sender,
+      message: {
+        ...baseEvent.message,
+        message_type: "media",
+        content: JSON.stringify({ file_key: "media_doc", file_name: "document.docx" }),
+      },
+    };
+    const result = parseMessageEvent(mediaEvent, "ou_bot");
+    expect(result.fileKey).toBe("media_doc");
+    expect(result.fileName).toBe("document.docx");
+    expect(result.content).toBe("[媒体: document.docx (media_doc)]");
+  });
+
+  it("handles malformed JSON content gracefully", () => {
+    const badEvent: MessageReceivedEvent = {
+      sender: baseEvent.sender,
+      message: {
+        ...baseEvent.message,
+        content: "not valid json",
+      },
+    };
+    const result = parseMessageEvent(badEvent, "ou_bot");
+    expect(result.imageKey).toBeUndefined();
+    expect(result.fileKey).toBeUndefined();
+    expect(result.fileName).toBeUndefined();
+  });
+
+  it("handles image message without image_key gracefully", () => {
+    const incompleteImageEvent: MessageReceivedEvent = {
+      sender: baseEvent.sender,
+      message: {
+        ...baseEvent.message,
+        message_type: "image",
+        content: JSON.stringify({ other_field: "value" }),
+      },
+    };
+    const result = parseMessageEvent(incompleteImageEvent, "ou_bot");
+    expect(result.imageKey).toBeUndefined();
+  });
 });
 
 describe("formatMentionsForFeishu", () => {

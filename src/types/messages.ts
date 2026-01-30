@@ -113,6 +113,12 @@ export interface ParsedMessage {
   contentType: string;
   /** Non-bot mentions preserved from the message */
   mentions?: MentionInfo[];
+  /** Image key for image messages (use with downloadImage) */
+  imageKey?: string;
+  /** File key for file/audio/media messages (use with downloadFile) */
+  fileKey?: string;
+  /** Original file name for file/media messages */
+  fileName?: string;
 }
 
 /** Parameters for uploading an image */

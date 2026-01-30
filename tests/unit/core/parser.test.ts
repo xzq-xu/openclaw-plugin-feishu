@@ -93,19 +93,19 @@ describe("stripMentions", () => {
     expect(result).toBe('<at user_id="ou_123">Alice</at> hello');
   });
 
-  it("removes bot mention but preserves others in Feishu native format", () => {
+  it("replaces bot mention with self reference but preserves others in Feishu native format", () => {
     const mixedMentions: MessageMention[] = [
       { key: "@_bot", id: { open_id: "ou_bot" }, name: "Bot" },
       { key: "@_alice", id: { open_id: "ou_alice" }, name: "Alice" },
     ];
     const result = stripMentions("@Bot @Alice hi", mixedMentions, "ou_bot");
-    expect(result).toBe('<at user_id="ou_alice">Alice</at> hi');
+    expect(result).toBe('<at user_id="self">你</at> <at user_id="ou_alice">Alice</at> hi');
   });
 
-  it("removes all bot mentions when matching botOpenId", () => {
+  it("replaces bot mentions with self reference when matching botOpenId", () => {
     const botMention: MessageMention[] = [{ key: "@_bot", id: { open_id: "ou_bot" }, name: "Bot" }];
     const result = stripMentions("@Bot hello", botMention, "ou_bot");
-    expect(result).toBe("hello");
+    expect(result).toBe('<at user_id="self">你</at> hello');
   });
 
   it("handles multiple non-bot mentions in Feishu native format", () => {
@@ -117,12 +117,12 @@ describe("stripMentions", () => {
     expect(result).toBe('<at user_id="ou_alice">Alice</at> <at user_id="ou_bob">Bob</at> meeting');
   });
 
-  it("removes mention without open_id", () => {
+  it("replaces mention without open_id with plain name", () => {
     const noOpenIdMention: MessageMention[] = [
       { key: "@_user", id: { user_id: "u_123" }, name: "User" },
     ];
     const result = stripMentions("@User hello", noOpenIdMention, "ou_bot");
-    expect(result).toBe("hello");
+    expect(result).toBe("User hello");
   });
 
   it("handles names with special characters like brackets", () => {
@@ -210,7 +210,7 @@ describe("parseMessageEvent", () => {
     expect(result.senderOpenId).toBe("ou_sender");
     expect(result.chatType).toBe("group");
     expect(result.mentionedBot).toBe(true);
-    expect(result.content).toBe("hello");
+    expect(result.content).toBe('<at user_id="self">你</at> hello');
   });
 
   it("sets mentionedBot false when bot not mentioned", () => {
@@ -232,7 +232,7 @@ describe("parseMessageEvent", () => {
     };
     const result = parseMessageEvent(eventWithUserMention, "ou_bot");
     expect(result.mentions).toEqual([{ name: "Alice", openId: "ou_alice" }]);
-    expect(result.content).toBe('<at user_id="ou_alice">Alice</at> hello');
+    expect(result.content).toBe('<at user_id="self">你</at> <at user_id="ou_alice">Alice</at> hello');
   });
 
   it("has undefined mentions when only bot is mentioned", () => {

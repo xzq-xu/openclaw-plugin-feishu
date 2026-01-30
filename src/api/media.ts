@@ -90,6 +90,7 @@ function isLocalPath(urlOrPath: string): boolean {
 
 /**
  * Resolve file path, trying multiple possible locations.
+ * Priority: /tmp/ and /workspaces first, then other paths.
  * Returns the resolved absolute path or null if not found.
  */
 function resolveFilePath(inputPath: string): string | null {
@@ -97,9 +98,6 @@ function resolveFilePath(inputPath: string): string | null {
   let cleanPath = inputPath;
   if (cleanPath.startsWith("file://")) {
     cleanPath = cleanPath.slice(7);
-    // Handle file:/// (3 slashes = absolute) vs file:// (2 slashes)
-    // file:///home/user -> /home/user
-    // file://./path -> ./path
   }
 
   // Expand ~ to home directory
@@ -107,28 +105,26 @@ function resolveFilePath(inputPath: string): string | null {
     cleanPath = cleanPath.replace("~", process.env["HOME"] ?? "");
   }
 
-  // If it's an absolute path, just check if it exists
-  if (path.isAbsolute(cleanPath)) {
-    if (fs.existsSync(cleanPath)) {
-      return cleanPath;
-    }
-    return null;
-  }
-
-  // For relative paths, try multiple base directories
+  // For relative paths, try multiple base directories in priority order
   const searchPaths = [
-    // Current working directory
-    path.resolve(process.cwd(), cleanPath),
-    // Home directory
-    path.resolve(process.env["HOME"] ?? "", cleanPath),
-    // Clawdbot extensions directory
-    path.resolve(process.env["HOME"] ?? "", ".clawdbot", cleanPath),
-    // Common workspaces
+    // Priority 1: /tmp/ directory (Agent sandbox, generated files)
+    path.resolve("/tmp", cleanPath),
+    // Priority 2: /workspaces (Codespaces, devcontainers)
     path.resolve("/workspaces", cleanPath),
+    // Priority 3: Current working directory
+    path.resolve(process.cwd(), cleanPath),
+    // Priority 4: Home directory workspaces
     path.resolve(process.env["HOME"] ?? "", "workspaces", cleanPath),
-    // Just the path as-is (in case it's already correct)
-    cleanPath,
+    // Priority 5: Home directory
+    path.resolve(process.env["HOME"] ?? "", cleanPath),
+    // Priority 6: Clawdbot extensions directory
+    path.resolve(process.env["HOME"] ?? "", ".clawdbot", cleanPath),
   ];
+
+  // If input is absolute path, prepend it to search list
+  if (path.isAbsolute(cleanPath)) {
+    searchPaths.unshift(cleanPath);
+  }
 
   for (const searchPath of searchPaths) {
     if (fs.existsSync(searchPath)) {

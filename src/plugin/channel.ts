@@ -7,8 +7,8 @@ import type {
   ClawdbotConfig,
   ChannelGroupContext,
   GroupToolPolicyConfig,
-} from "clawdbot/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID, PAIRING_APPROVED_MESSAGE } from "clawdbot/plugin-sdk";
+} from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID, PAIRING_APPROVED_MESSAGE } from "openclaw/plugin-sdk";
 
 import type { Config } from "../config/schema.js";
 import { resolveCredentials } from "../config/schema.js";
@@ -151,7 +151,25 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
         dmHistoryLimit: { type: "integer", minimum: 0 },
         textChunkLimit: { type: "integer", minimum: 1 },
         chunkMode: { type: "string", enum: ["length", "newline"] },
+        blockStreamingCoalesce: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            enabled: { type: "boolean" },
+            minDelayMs: { type: "integer", minimum: 1 },
+            maxDelayMs: { type: "integer", minimum: 1 },
+          },
+        },
+        streamingCard: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            enabled: { type: "boolean" },
+            title: { type: "string" },
+          },
+        },
         mediaMaxMb: { type: "number", minimum: 0 },
+        debugRawEvents: { type: "boolean" },
       },
     },
   },

@@ -3,15 +3,15 @@
  * Creates a dispatcher that sends agent replies back to Feishu.
  */
 
-import type { ClawdbotConfig, RuntimeEnv, ReplyPayload, PluginRuntime } from "clawdbot/plugin-sdk";
+import type { ClawdbotConfig, RuntimeEnv, ReplyPayload, PluginRuntime } from "openclaw/plugin-sdk";
 import {
   createReplyPrefixContext,
   createTypingCallbacks,
   logTypingFailure,
-} from "clawdbot/plugin-sdk";
+} from "openclaw/plugin-sdk";
 
 import { getRuntime } from "./runtime.js";
-import { sendTextMessage } from "../api/messages.js";
+import { sendCardMessage, sendTextMessage, updateCard } from "../api/messages.js";
 import { addReaction, removeReaction, Emoji } from "../api/reactions.js";
 import { formatMentionsForFeishu } from "./parser.js";
 import type { Config } from "../config/schema.js";
@@ -105,6 +105,111 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
     cfg,
     channel: "feishu",
   });
+  const streamingCardConfig = feishuCfg?.streamingCard;
+  const streamingCardEnabled = Boolean(streamingCardConfig?.enabled);
+  const streamingCardTitle = streamingCardConfig?.title;
+  let streamingCardMessageId: string | null = null;
+  let streamingCardBuffer = "";
+  const coalesceConfig = feishuCfg?.blockStreamingCoalesce;
+  const coalesceEnabled = Boolean(coalesceConfig?.enabled);
+  const coalesceMinDelayMs = coalesceConfig?.minDelayMs ?? 400;
+  const coalesceMaxDelayMs = coalesceConfig?.maxDelayMs ?? 2000;
+  let coalesceBuffer = "";
+  let coalesceTimer: ReturnType<typeof setTimeout> | null = null;
+  let coalesceFirstAt: number | null = null;
+  let coalesceFlushPromise: Promise<void> | null = null;
+
+  const sendTextPayload = async (text: string) => {
+    const converted = core.channel.text.convertMarkdownTables(text, tableMode);
+    const formattedText = formatMentionsForFeishu(converted);
+    const chunks = core.channel.text.chunkTextWithMode(formattedText, textChunkLimit, chunkMode);
+
+    params.runtime.log?.(`Deliver: sending ${chunks.length} chunks to ${chatId}`);
+    for (const chunk of chunks) {
+      await sendTextMessage(feishuCfg, {
+        to: chatId,
+        text: chunk,
+        replyToMessageId,
+      });
+    }
+  };
+
+  const buildStreamingCard = (text: string): Record<string, unknown> => {
+    const converted = core.channel.text.convertMarkdownTables(text, tableMode);
+    const formattedText = formatMentionsForFeishu(converted);
+    const content = formattedText.trim() ? formattedText : " ";
+    const card: Record<string, unknown> = {
+      config: { wide_screen_mode: true },
+      elements: [
+        {
+          tag: "div",
+          text: { tag: "lark_md", content },
+        },
+      ],
+    };
+
+    if (streamingCardTitle?.trim()) {
+      card["header"] = {
+        title: { tag: "plain_text", content: streamingCardTitle },
+      };
+    }
+
+    return card;
+  };
+
+  const sendStreamingCard = async (text: string) => {
+    const card = buildStreamingCard(text);
+    if (!streamingCardMessageId) {
+      const result = await sendCardMessage(feishuCfg, {
+        to: chatId,
+        card,
+        replyToMessageId,
+      });
+      streamingCardMessageId = result.messageId;
+      return;
+    }
+
+    await updateCard(feishuCfg, streamingCardMessageId, card);
+  };
+
+  const clearCoalesceTimer = () => {
+    if (coalesceTimer) {
+      clearTimeout(coalesceTimer);
+      coalesceTimer = null;
+    }
+  };
+
+  const flushCoalesced = async (reason: string) => {
+    clearCoalesceTimer();
+    const text = coalesceBuffer;
+    coalesceBuffer = "";
+    coalesceFirstAt = null;
+
+    const content = streamingCardEnabled ? streamingCardBuffer : text;
+    if (!content.trim()) {
+      return;
+    }
+
+    params.runtime.log?.(`Deliver: flushing coalesced text (${reason})`);
+    if (streamingCardEnabled) {
+      await sendStreamingCard(content);
+    } else {
+      await sendTextPayload(text);
+    }
+  };
+
+  const enqueueFlush = async (reason: string) => {
+    const next = (coalesceFlushPromise ?? Promise.resolve()).then(() => flushCoalesced(reason));
+    coalesceFlushPromise = next;
+    await next;
+  };
+
+  const scheduleFlush = () => {
+    clearCoalesceTimer();
+    coalesceTimer = setTimeout(() => {
+      void enqueueFlush("idle");
+    }, coalesceMinDelayMs);
+  };
 
   const { dispatcher, replyOptions, markDispatchIdle } =
     core.channel.reply.createReplyDispatcherWithTyping({
@@ -126,28 +231,56 @@ export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
         }
 
         // Text delivery only - media is handled by Clawdbot's outbound.sendMedia
-        const converted = core.channel.text.convertMarkdownTables(text, tableMode);
-        const formattedText = formatMentionsForFeishu(converted);
-        const chunks = core.channel.text.chunkTextWithMode(
-          formattedText,
-          textChunkLimit,
-          chunkMode
-        );
+        if (streamingCardEnabled) {
+          streamingCardBuffer += text;
+          if (coalesceEnabled) {
+            coalesceBuffer += text;
+            if (coalesceFirstAt === null) {
+              coalesceFirstAt = Date.now();
+            }
 
-        params.runtime.log?.(`Deliver: sending ${chunks.length} chunks to ${chatId}`);
-        for (const chunk of chunks) {
-          await sendTextMessage(feishuCfg, {
-            to: chatId,
-            text: chunk,
-            replyToMessageId,
-          });
+            const elapsed = Date.now() - coalesceFirstAt;
+            if (elapsed >= coalesceMaxDelayMs) {
+              await enqueueFlush("max-delay");
+              return;
+            }
+
+            scheduleFlush();
+            return;
+          }
+
+          await sendStreamingCard(streamingCardBuffer);
+          return;
         }
+
+        if (coalesceEnabled) {
+          coalesceBuffer += text;
+          if (coalesceFirstAt === null) {
+            coalesceFirstAt = Date.now();
+          }
+
+          const elapsed = Date.now() - coalesceFirstAt;
+          if (elapsed >= coalesceMaxDelayMs) {
+            await enqueueFlush("max-delay");
+            return;
+          }
+
+          scheduleFlush();
+          return;
+        }
+
+        await sendTextPayload(text);
       },
       onError: (err, info) => {
         params.runtime.error?.(`${info.kind} reply failed: ${String(err)}`);
         typingCallbacks.onIdle?.();
       },
-      onIdle: typingCallbacks.onIdle,
+      onIdle: () => {
+        if (coalesceEnabled) {
+          void enqueueFlush("idle");
+        }
+        typingCallbacks.onIdle?.();
+      },
     });
 
   return {

@@ -24,7 +24,8 @@
   "files": [
     "src",
     "moltbot.plugin.json",
-    "clawdbot.plugin.json"
+    "clawdbot.plugin.json",
+    "openclaw.plugin.json"
   ],
   "scripts": {
     "build": "tsc",
@@ -58,9 +59,27 @@
       "order": 70
     }
   },
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "channel": {
+      "id": "feishu",
+      "label": "Feishu",
+      "selectionLabel": "Feishu",
+      "docsPath": "/channels/feishu",
+      "docsLabel": "feishu",
+      "blurb": "Feishu enterprise messaging.",
+      "aliases": [
+        "lark"
+      ],
+      "order": 70
+    }
+  },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.30.0",
     "@sinclair/typebox": "^0.34.0",
+    "clawdbot": "^2026.1.24",
     "zod": "^3.23.0"
   },
   "devDependencies": {
@@ -69,7 +88,6 @@
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitest/coverage-v8": "^2.1.9",
-    "clawdbot": "^2026.1.24",
     "dotenv": "^17.2.3",
     "eslint": "^9.0.0",
     "prettier": "^3.8.1",

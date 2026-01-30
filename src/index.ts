@@ -27,6 +27,8 @@ export {
 export {
   uploadImage,
   uploadFile,
+  downloadImage,
+  downloadFile,
   sendMedia,
   sendImage,
   sendFile,
@@ -35,7 +37,8 @@ export {
 
 export { addReaction, removeReaction, listReactions, Emoji } from "./api/reactions.js";
 
-export { listUsers, listGroups } from "./api/directory.js";
+export { listUsers, listGroups, getUserByOpenId, getUserByUnionId } from "./api/directory.js";
+export { getUserByOpenId } from "./api/directory.js";
 
 export { probeConnection, getApiClient, clearClientCache } from "./api/client.js";
 
@@ -100,6 +103,8 @@ export type {
   // Media
   UploadImageParams,
   UploadFileParams,
+  DownloadImageParams,
+  DownloadFileParams,
   SendMediaParams,
   ImageUploadResult,
   FileUploadResult,

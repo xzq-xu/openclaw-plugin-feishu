@@ -270,6 +270,7 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
     messageId: message.message_id,
     senderId: sender.sender_id.user_id ?? sender.sender_id.open_id ?? "",
     senderOpenId: sender.sender_id.open_id ?? "",
+    senderUnionId: sender.sender_id.union_id ?? undefined,
     senderName: undefined,
     chatType: message.chat_type,
     mentionedBot,

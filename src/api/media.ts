@@ -9,6 +9,8 @@ import type { Config } from "../config/schema.js";
 import type {
   UploadImageParams,
   UploadFileParams,
+  DownloadImageParams,
+  DownloadFileParams,
   SendMediaParams,
   SendResult,
   ImageUploadResult,
@@ -135,6 +137,50 @@ function resolveFilePath(inputPath: string): string | null {
   return null;
 }
 
+/**
+ * Read a readable stream into a buffer.
+ */
+async function readStreamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Normalize binary responses from the SDK or fetch.
+ */
+async function normalizeBinaryResponse(response: unknown): Promise<Buffer> {
+  if (Buffer.isBuffer(response)) {
+    return response;
+  }
+
+  if (response instanceof Readable) {
+    return readStreamToBuffer(response);
+  }
+
+  if (response instanceof ArrayBuffer) {
+    return Buffer.from(response);
+  }
+
+  if (ArrayBuffer.isView(response)) {
+    return Buffer.from(response.buffer, response.byteOffset, response.byteLength);
+  }
+
+  if (typeof response === "object" && response !== null) {
+    const responseObj = response as { code?: number; msg?: string; data?: unknown };
+    if (responseObj.code !== undefined && responseObj.code !== 0) {
+      throw new Error(`Download failed: ${responseObj.msg ?? `code ${responseObj.code}`}`);
+    }
+    if (responseObj.data !== undefined) {
+      return normalizeBinaryResponse(responseObj.data);
+    }
+  }
+
+  throw new Error("Download failed: unsupported response type");
+}
+
 // ============================================================================
 // Upload Operations
 // ============================================================================
@@ -228,6 +274,48 @@ export async function uploadFile(
   }
 
   return { fileKey };
+}
+
+// ============================================================================
+// Download Operations
+// ============================================================================
+
+/**
+ * Download an image by image_key.
+ *
+ * @throws Error if download fails
+ */
+export async function downloadImage(
+  config: Config,
+  params: DownloadImageParams
+): Promise<Buffer> {
+  const client = getApiClient(config);
+  const response = (await client.request({
+    method: "GET",
+    url: `/open-apis/im/v1/images/${encodeURIComponent(params.imageKey)}`,
+    responseType: "arraybuffer",
+  } as Record<string, unknown>)) as unknown;
+
+  return normalizeBinaryResponse(response);
+}
+
+/**
+ * Download a file by file_key.
+ *
+ * @throws Error if download fails
+ */
+export async function downloadFile(
+  config: Config,
+  params: DownloadFileParams
+): Promise<Buffer> {
+  const client = getApiClient(config);
+  const response = (await client.request({
+    method: "GET",
+    url: `/open-apis/im/v1/files/${encodeURIComponent(params.fileKey)}`,
+    responseType: "arraybuffer",
+  } as Record<string, unknown>)) as unknown;
+
+  return normalizeBinaryResponse(response);
 }
 
 // ============================================================================
@@ -340,6 +428,22 @@ export async function sendFile(config: Config, params: SendFileParams): Promise<
  * @throws Error if no media source provided or upload/send fails
  */
 export async function sendMedia(config: Config, params: SendMediaParams): Promise<SendResult> {
+  if (params.imageKey) {
+    return sendImage(config, {
+      to: params.to,
+      imageKey: params.imageKey,
+      replyToMessageId: params.replyToMessageId,
+    });
+  }
+
+  if (params.fileKey) {
+    return sendFile(config, {
+      to: params.to,
+      fileKey: params.fileKey,
+      replyToMessageId: params.replyToMessageId,
+    });
+  }
+
   let buffer: Buffer;
   let name: string;
 

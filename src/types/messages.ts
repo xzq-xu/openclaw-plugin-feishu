@@ -103,6 +103,7 @@ export interface ParsedMessage {
   messageId: string;
   senderId: string;
   senderOpenId: string;
+  senderUnionId?: string;
   senderName?: string;
   chatType: ChatType;
   mentionedBot: boolean;
@@ -118,6 +119,11 @@ export interface ParsedMessage {
 export interface UploadImageParams {
   image: Buffer | string;
   imageType?: "message" | "avatar";
+}
+
+/** Parameters for downloading an image */
+export interface DownloadImageParams {
+  imageKey: string;
 }
 
 /** Result of image upload */
@@ -136,6 +142,11 @@ export interface UploadFileParams {
   duration?: number;
 }
 
+/** Parameters for downloading a file */
+export interface DownloadFileParams {
+  fileKey: string;
+}
+
 /** Result of file upload */
 export interface FileUploadResult {
   fileKey: string;
@@ -146,6 +157,8 @@ export interface SendMediaParams {
   to: string;
   mediaUrl?: string;
   mediaBuffer?: Buffer;
+  imageKey?: string;
+  fileKey?: string;
   fileName?: string;
   replyToMessageId?: string;
 }

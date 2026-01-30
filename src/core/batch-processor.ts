@@ -3,7 +3,7 @@
  * Buffers messages per-chat and flushes when triggered, enabling human-like message processing.
  */
 
-import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "clawdbot/plugin-sdk";
+import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-sdk";
 import type { MessageReceivedEvent } from "../types/index.js";
 import type { ParsedMessage } from "../types/index.js";
 import type { Trigger, TriggerContext } from "./triggers/index.js";

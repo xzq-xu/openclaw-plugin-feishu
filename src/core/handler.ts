@@ -3,13 +3,13 @@
  * Integrates with Clawdbot runtime for routing and agent execution.
  */
 
-import type { ClawdbotConfig, RuntimeEnv, HistoryEntry, PluginRuntime } from "clawdbot/plugin-sdk";
+import type { ClawdbotConfig, RuntimeEnv, HistoryEntry, PluginRuntime } from "openclaw/plugin-sdk";
 import {
   buildPendingHistoryContextFromMap,
   recordPendingHistoryEntryIfEnabled,
   clearHistoryEntriesIfEnabled,
   DEFAULT_GROUP_HISTORY_LIMIT,
-} from "clawdbot/plugin-sdk";
+} from "openclaw/plugin-sdk";
 
 import type { Config } from "../config/schema.js";
 import type { MessageReceivedEvent } from "../types/index.js";
@@ -19,6 +19,7 @@ import { parseMessageEvent } from "./parser.js";
 import { checkGroupPolicy, shouldRequireMention, matchAllowlist } from "./policy.js";
 import { createReplyDispatcher } from "./reply-dispatcher.js";
 import { getMessage } from "../api/messages.js";
+import { getUserByOpenId, getUserByUnionId } from "../api/directory.js";
 import { getRuntime } from "./runtime.js";
 
 // ============================================================================
@@ -67,10 +68,46 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
     return;
   }
 
+  if (feishuCfg.debugRawEvents) {
+    try {
+      log(`[feishu] Raw event: ${JSON.stringify(event)}`);
+    } catch {
+      log("[feishu] Raw event: <unserializable>");
+    }
+  }
+
   const parsed = parseMessageEvent(event, botOpenId);
+  if (!parsed.senderName && parsed.senderOpenId) {
+    try {
+      const user = await getUserByOpenId(feishuCfg, parsed.senderOpenId);
+      if (user?.name) {
+        parsed.senderName = user.name;
+      }
+    } catch {
+      // Ignore lookup failures; senderName stays undefined
+    }
+  }
+  if (!parsed.senderName && parsed.senderUnionId) {
+    try {
+      const user = await getUserByUnionId(feishuCfg, parsed.senderUnionId);
+      if (user?.name) {
+        parsed.senderName = user.name;
+      }
+    } catch {
+      // Ignore lookup failures; senderName stays undefined
+    }
+  }
+  const senderLabel = parsed.senderName ?? parsed.senderOpenId;
+  if (feishuCfg.debugRawEvents) {
+    log(
+      `[feishu] Sender lookup: open_id=${parsed.senderOpenId} union_id=${
+        parsed.senderUnionId ?? "none"
+      } name=${parsed.senderName ?? "unknown"}`
+    );
+  }
   const isGroup = parsed.chatType === "group";
 
-  log(`Received message from ${parsed.senderOpenId} in ${parsed.chatId} (${parsed.chatType})`);
+  log(`Received message from ${senderLabel} in ${parsed.chatId} (${parsed.chatType})`);
 
   const historyLimit = Math.max(
     0,
@@ -100,7 +137,7 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
           historyKey: parsed.chatId,
           limit: historyLimit,
           entry: {
-            sender: parsed.senderOpenId,
+            sender: senderLabel,
             body: parsed.content,
             timestamp: Date.now(),
             messageId: parsed.messageId,
@@ -192,9 +229,10 @@ async function dispatchToAgent(params: DispatchParams): Promise<void> {
     });
 
     const preview = parsed.content.replace(/\s+/g, " ").slice(0, 160);
+    const senderLabel = parsed.senderName ?? parsed.senderOpenId;
     const inboundLabel = isGroup
       ? `Feishu message in group ${parsed.chatId}`
-      : `Feishu DM from ${parsed.senderOpenId}`;
+      : `Feishu DM from ${senderLabel}`;
 
     core.system.enqueueSystemEvent(`${inboundLabel}: ${preview}`, {
       sessionKey: route.sessionKey,
@@ -222,7 +260,7 @@ async function dispatchToAgent(params: DispatchParams): Promise<void> {
       const formattedMessages = batchedMessages.map((m) =>
         core.channel.reply.formatAgentEnvelope({
           channel: "Feishu",
-          from: m.parsed.senderOpenId,
+          from: m.parsed.senderName ?? m.parsed.senderOpenId,
           timestamp: new Date(),
           envelope: envelopeOptions,
           body: m.parsed.content,
@@ -237,7 +275,7 @@ async function dispatchToAgent(params: DispatchParams): Promise<void> {
 
       const body = core.channel.reply.formatAgentEnvelope({
         channel: "Feishu",
-        from: isGroup ? parsed.chatId : parsed.senderOpenId,
+        from: isGroup ? parsed.chatId : senderLabel,
         timestamp: new Date(),
         envelope: envelopeOptions,
         body: messageBody,
@@ -274,7 +312,7 @@ async function dispatchToAgent(params: DispatchParams): Promise<void> {
       AccountId: route.accountId,
       ChatType: isGroup ? "group" : "direct",
       GroupSubject: isGroup ? parsed.chatId : undefined,
-      SenderName: parsed.senderOpenId,
+      SenderName: senderLabel,
       SenderId: parsed.senderOpenId,
       Provider: "feishu" as const,
       Surface: "feishu" as const,

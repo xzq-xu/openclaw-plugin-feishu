@@ -69,6 +69,149 @@ export function listGroupsFromConfig(
 }
 
 // ============================================================================
+// User Lookup
+// ============================================================================
+
+const userCache = new Map<string, DirectoryUser>();
+
+function logLookup(config: Config, message: string): void {
+  if (config.debugRawEvents) {
+    console.log(message);
+  }
+}
+
+function formatLookupError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+interface GetUserResponse {
+  code?: number;
+  msg?: string;
+  data?: {
+    user?: {
+      open_id?: string;
+      user_id?: string;
+      union_id?: string;
+      name?: string;
+      display_name?: string;
+    };
+  };
+}
+
+/**
+ * Get a user by open_id.
+ * Returns null if not found or access denied.
+ */
+export async function getUserByOpenId(
+  config: Config,
+  openId: string
+): Promise<DirectoryUser | null> {
+  const cached = userCache.get(openId);
+  if (cached) {
+    return cached;
+  }
+
+  const credentials = resolveCredentials(config);
+  if (!credentials) {
+    return null;
+  }
+
+  try {
+    const client = getApiClient(config);
+    const response = (await client.contact.user.get({
+      path: { user_id: openId },
+      params: { user_id_type: "open_id" },
+    })) as GetUserResponse;
+
+    if (response.code !== 0) {
+      logLookup(
+        config,
+        `[feishu] getUserByOpenId failed: code=${response.code ?? "unknown"} msg=${
+          response.msg ?? "unknown"
+        }`
+      );
+      return null;
+    }
+
+    const user = response.data?.user;
+    if (!user) {
+      logLookup(config, "[feishu] getUserByOpenId failed: empty user payload");
+      return null;
+    }
+
+    const name = user.name ?? user.display_name;
+    const result: DirectoryUser = {
+      kind: "user",
+      id: user.open_id ?? openId,
+      name: name || undefined,
+    };
+    userCache.set(openId, result);
+    return result;
+  } catch (error) {
+    logLookup(config, `[feishu] getUserByOpenId exception: ${formatLookupError(error)}`);
+    return null;
+  }
+}
+
+/**
+ * Get a user by union_id.
+ * Returns null if not found or access denied.
+ */
+export async function getUserByUnionId(
+  config: Config,
+  unionId: string
+): Promise<DirectoryUser | null> {
+  const cached = userCache.get(unionId);
+  if (cached) {
+    return cached;
+  }
+
+  const credentials = resolveCredentials(config);
+  if (!credentials) {
+    return null;
+  }
+
+  try {
+    const client = getApiClient(config);
+    const response = (await client.contact.user.get({
+      path: { user_id: unionId },
+      params: { user_id_type: "union_id" },
+    })) as GetUserResponse;
+
+    if (response.code !== 0) {
+      logLookup(
+        config,
+        `[feishu] getUserByUnionId failed: code=${response.code ?? "unknown"} msg=${
+          response.msg ?? "unknown"
+        }`
+      );
+      return null;
+    }
+
+    const user = response.data?.user;
+    if (!user) {
+      logLookup(config, "[feishu] getUserByUnionId failed: empty user payload");
+      return null;
+    }
+
+    const name = user.name ?? user.display_name;
+    const result: DirectoryUser = {
+      kind: "user",
+      id: user.open_id ?? unionId,
+      name: name || undefined,
+    };
+    userCache.set(unionId, result);
+    return result;
+  } catch (error) {
+    logLookup(config, `[feishu] getUserByUnionId exception: ${formatLookupError(error)}`);
+    return null;
+  }
+}
+
+// ============================================================================
 // Live Directory (from API)
 // ============================================================================
 

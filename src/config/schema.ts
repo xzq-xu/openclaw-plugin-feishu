@@ -60,6 +60,15 @@ export const StreamingCoalesceSchema = z
   .strict()
   .optional();
 
+/** Streaming card settings */
+export const StreamingCardSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    title: z.string().optional(),
+  })
+  .strict()
+  .optional();
+
 /** Heartbeat visibility settings */
 export const HeartbeatConfigSchema = z
   .object({
@@ -113,6 +122,7 @@ export const ConfigSchema = z
     textChunkLimit: z.number().int().positive().optional(),
     chunkMode: ChunkModeSchema.optional(),
     blockStreamingCoalesce: StreamingCoalesceSchema,
+    streamingCard: StreamingCardSchema,
 
     // Media
     mediaMaxMb: z.number().positive().optional(),
@@ -120,6 +130,9 @@ export const ConfigSchema = z
     // UI
     heartbeat: HeartbeatConfigSchema,
     capabilities: z.array(z.string()).optional(),
+
+    // Debugging
+    debugRawEvents: z.boolean().optional(),
 
     // Threading
     replyToMode: ReplyToModeSchema.optional().default("first"),
@@ -151,6 +164,7 @@ export type ToolPolicy = z.infer<typeof ToolPolicySchema>;
 export type DmConfig = z.infer<typeof DmConfigSchema>;
 export type MarkdownConfig = z.infer<typeof MarkdownConfigSchema>;
 export type StreamingCoalesce = z.infer<typeof StreamingCoalesceSchema>;
+export type StreamingCard = z.infer<typeof StreamingCardSchema>;
 export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 
 // ============================================================================

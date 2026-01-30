@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 > This project is forked from [samzong/clawdbot-plugin-feishu](https://github.com/samzong/clawdbot-plugin-feishu). Thanks to the original author for the foundation.
 
+## [0.1.5] - 2025-01-30
+
+### Added
+
+- **Auto-detect and send media files in replies**: Agent can now send files by outputting file paths
+  - Automatically detects file paths (e.g., `/path/to/image.png`, `./file.pdf`, `https://example.com/file.jpg`)
+  - Uploads and sends as native Feishu image/file message
+  - Falls back to text link if upload fails
+  - Supports: images, documents, audio, video, archives, and more
+
+### Fixed
+
+- **Mention formatting in replies**: Agent replies now properly convert mentions to Feishu native format
+
 ## [0.1.4] - 2025-01-30
 
 ### Added

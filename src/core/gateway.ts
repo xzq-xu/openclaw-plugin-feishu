@@ -7,7 +7,8 @@ import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "clawdbot/plugin-s
 import type { Config } from "../config/schema.js";
 import type { MessageReceivedEvent, BotAddedEvent, BotRemovedEvent } from "../types/index.js";
 import { createWsClient, probeConnection } from "../api/client.js";
-import { handleMessage } from "./handler.js";
+import { handleMessage, createBatchFlushHandler } from "./handler.js";
+import { BatchProcessor } from "./batch-processor.js";
 
 // ============================================================================
 // Types
@@ -24,6 +25,7 @@ export interface GatewayState {
   botName: string | undefined;
   wsClient: Lark.WSClient | null;
   chatHistories: Map<string, HistoryEntry[]>;
+  batchProcessor: BatchProcessor | null;
 }
 
 // ============================================================================
@@ -35,6 +37,7 @@ const state: GatewayState = {
   botOpenId: undefined,
   wsClient: null,
   chatHistories: new Map(),
+  batchProcessor: null,
 };
 
 export function getBotName(): string | undefined {
@@ -63,7 +66,6 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
     throw new Error("Feishu not configured");
   }
 
-  // Probe to get bot info - MUST succeed for mention detection
   try {
     const probeResult = await probeConnection(feishuCfg);
     if (probeResult.ok && probeResult.botOpenId) {
@@ -76,6 +78,21 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
   } catch (err) {
     log(`Gateway: probe error: ${String(err)}`);
   }
+
+  const onFlush = createBatchFlushHandler({
+    cfg,
+    runtime,
+    chatHistories: state.chatHistories,
+  });
+
+  state.batchProcessor = new BatchProcessor({
+    cfg,
+    runtime,
+    chatHistories: state.chatHistories,
+    botOpenId: state.botOpenId,
+    botName: state.botName,
+    onFlush,
+  });
 
   log("Gateway: starting WebSocket connection...");
 
@@ -95,6 +112,7 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
           botName: state.botName,
           runtime,
           chatHistories: state.chatHistories,
+          batchProcessor: state.batchProcessor ?? undefined,
         });
       } catch (err) {
         error(`Gateway: error handling message: ${String(err)}`);
@@ -117,9 +135,12 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
 
   return new Promise<void>((_resolve, reject) => {
     const onAbort = () => {
+      if (state.batchProcessor) {
+        state.batchProcessor.dispose();
+        state.batchProcessor = null;
+      }
       if (state.wsClient) {
         try {
-          // WSClient doesn't have a close method, just clear reference
           state.wsClient = null;
         } catch {
           // Ignore close errors
@@ -148,6 +169,10 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
 }
 
 export async function stopGateway(): Promise<void> {
+  if (state.batchProcessor) {
+    state.batchProcessor.dispose();
+    state.batchProcessor = null;
+  }
   if (state.wsClient) {
     state.wsClient = null;
   }

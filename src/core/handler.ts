@@ -13,6 +13,8 @@ import {
 
 import type { Config } from "../config/schema.js";
 import type { MessageReceivedEvent } from "../types/index.js";
+import type { ParsedMessage } from "../types/index.js";
+import type { BatchProcessor, FlushParams } from "./batch-processor.js";
 import { parseMessageEvent } from "./parser.js";
 import { checkGroupPolicy, shouldRequireMention, matchAllowlist } from "./policy.js";
 import { createReplyDispatcher } from "./reply-dispatcher.js";
@@ -30,6 +32,17 @@ export interface MessageHandlerParams {
   botName?: string;
   runtime?: RuntimeEnv;
   chatHistories?: Map<string, HistoryEntry[]>;
+  batchProcessor?: BatchProcessor;
+}
+
+export interface DispatchParams {
+  cfg: ClawdbotConfig;
+  feishuCfg: Config;
+  parsed: ParsedMessage;
+  runtime?: RuntimeEnv;
+  chatHistories?: Map<string, HistoryEntry[]>;
+  historyLimit: number;
+  batchedMessages?: FlushParams["messages"];
 }
 
 // ============================================================================
@@ -37,18 +50,23 @@ export interface MessageHandlerParams {
 // ============================================================================
 
 export async function handleMessage(params: MessageHandlerParams): Promise<void> {
-  const { cfg, event, botOpenId, botName: _botName, runtime, chatHistories } = params;
+  const {
+    cfg,
+    event,
+    botOpenId,
+    botName: _botName,
+    runtime,
+    chatHistories,
+    batchProcessor,
+  } = params;
   const feishuCfg = cfg.channels?.feishu as Config | undefined;
   const log = runtime?.log ?? console.log;
-  const error = runtime?.error ?? console.error;
 
-  // Early guard: require feishu config
   if (!feishuCfg) {
     log("Feishu config not found, skipping message");
     return;
   }
 
-  // Parse the event
   const parsed = parseMessageEvent(event, botOpenId);
   const isGroup = parsed.chatType === "group";
 
@@ -59,12 +77,16 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
     feishuCfg.historyLimit ?? cfg.messages?.groupChat?.historyLimit ?? DEFAULT_GROUP_HISTORY_LIMIT
   );
 
-  // Check policies
   if (isGroup) {
     const result = checkGroupPolicy(feishuCfg, parsed.chatId, parsed.senderOpenId);
 
     if (!result.allowed) {
       log(`Sender ${parsed.senderOpenId} not in group allowlist`);
+      return;
+    }
+
+    if (batchProcessor) {
+      batchProcessor.processMessage(parsed, event);
       return;
     }
 
@@ -100,7 +122,60 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
     }
   }
 
-  // Dispatch to agent
+  await dispatchToAgent({
+    cfg,
+    feishuCfg,
+    parsed,
+    runtime,
+    chatHistories,
+    historyLimit,
+  });
+}
+
+// ============================================================================
+// Batch Flush Handler
+// ============================================================================
+
+export function createBatchFlushHandler(params: {
+  cfg: ClawdbotConfig;
+  runtime?: RuntimeEnv;
+  chatHistories: Map<string, HistoryEntry[]>;
+}): (flushParams: FlushParams) => Promise<void> {
+  const { cfg, runtime, chatHistories } = params;
+  const feishuCfg = cfg.channels?.feishu as Config | undefined;
+
+  const historyLimit = Math.max(
+    0,
+    feishuCfg?.historyLimit ?? cfg.messages?.groupChat?.historyLimit ?? DEFAULT_GROUP_HISTORY_LIMIT
+  );
+
+  return async (flushParams: FlushParams) => {
+    if (!feishuCfg) return;
+
+    const { messages, triggerMessage } = flushParams;
+
+    await dispatchToAgent({
+      cfg,
+      feishuCfg,
+      parsed: triggerMessage.parsed,
+      runtime,
+      chatHistories,
+      historyLimit,
+      batchedMessages: messages,
+    });
+  };
+}
+
+// ============================================================================
+// Agent Dispatch
+// ============================================================================
+
+async function dispatchToAgent(params: DispatchParams): Promise<void> {
+  const { cfg, feishuCfg, parsed, runtime, chatHistories, historyLimit, batchedMessages } = params;
+  const log = runtime?.log ?? console.log;
+  const error = runtime?.error ?? console.error;
+  const isGroup = parsed.chatType === "group";
+
   try {
     const core = getRuntime() as PluginRuntime;
 
@@ -126,7 +201,6 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
       contextKey: `feishu:message:${parsed.chatId}:${parsed.messageId}`,
     });
 
-    // Fetch quoted message if replying
     let quotedContent: string | undefined;
     if (parsed.parentId) {
       try {
@@ -142,38 +216,52 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
 
     const envelopeOptions = core.channel.reply.resolveEnvelopeFormatOptions(cfg);
 
-    // Build message body
-    let messageBody = parsed.content;
-    if (quotedContent) {
-      messageBody = `[Replying to: "${quotedContent}"]\n\n${parsed.content}`;
-    }
+    let combinedBody: string;
 
-    const body = core.channel.reply.formatAgentEnvelope({
-      channel: "Feishu",
-      from: isGroup ? parsed.chatId : parsed.senderOpenId,
-      timestamp: new Date(),
-      envelope: envelopeOptions,
-      body: messageBody,
-    });
+    if (batchedMessages && batchedMessages.length > 0) {
+      const formattedMessages = batchedMessages.map((m) =>
+        core.channel.reply.formatAgentEnvelope({
+          channel: "Feishu",
+          from: m.parsed.senderOpenId,
+          timestamp: new Date(),
+          envelope: envelopeOptions,
+          body: m.parsed.content,
+        })
+      );
+      combinedBody = formattedMessages.join("\n\n");
+    } else {
+      let messageBody = parsed.content;
+      if (quotedContent) {
+        messageBody = `[Replying to: "${quotedContent}"]\n\n${parsed.content}`;
+      }
 
-    let combinedBody = body;
-    const historyKey = isGroup ? parsed.chatId : undefined;
-
-    if (isGroup && historyKey && chatHistories) {
-      combinedBody = buildPendingHistoryContextFromMap({
-        historyMap: chatHistories,
-        historyKey,
-        limit: historyLimit,
-        currentMessage: combinedBody,
-        formatEntry: (entry: HistoryEntry) =>
-          core.channel.reply.formatAgentEnvelope({
-            channel: "Feishu",
-            from: parsed.chatId,
-            timestamp: entry.timestamp,
-            body: `${entry.sender}: ${entry.body}`,
-            envelope: envelopeOptions,
-          }),
+      const body = core.channel.reply.formatAgentEnvelope({
+        channel: "Feishu",
+        from: isGroup ? parsed.chatId : parsed.senderOpenId,
+        timestamp: new Date(),
+        envelope: envelopeOptions,
+        body: messageBody,
       });
+
+      combinedBody = body;
+      const historyKey = isGroup ? parsed.chatId : undefined;
+
+      if (isGroup && historyKey && chatHistories) {
+        combinedBody = buildPendingHistoryContextFromMap({
+          historyMap: chatHistories,
+          historyKey,
+          limit: historyLimit,
+          currentMessage: combinedBody,
+          formatEntry: (entry: HistoryEntry) =>
+            core.channel.reply.formatAgentEnvelope({
+              channel: "Feishu",
+              from: parsed.chatId,
+              timestamp: entry.timestamp,
+              body: `${entry.sender}: ${entry.body}`,
+              envelope: envelopeOptions,
+            }),
+        });
+      }
     }
 
     const ctxPayload = core.channel.reply.finalizeInboundContext({
@@ -217,6 +305,7 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
 
     markDispatchIdle();
 
+    const historyKey = isGroup ? parsed.chatId : undefined;
     if (isGroup && historyKey && chatHistories) {
       clearHistoryEntriesIfEnabled({
         historyMap: chatHistories,

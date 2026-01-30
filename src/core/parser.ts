@@ -16,19 +16,135 @@ import type {
 
 /**
  * Parse message content based on message type.
- * Extracts text from JSON-wrapped content.
+ * Extracts human-readable content from various message types.
  */
 export function parseMessageContent(content: string, messageType: string): string {
   try {
     const parsed: unknown = JSON.parse(content);
-    if (
-      messageType === "text" &&
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "text" in parsed
-    ) {
-      return String((parsed as { text: unknown }).text);
+
+    if (typeof parsed !== "object" || parsed === null) {
+      return content;
     }
+
+    const obj = parsed as Record<string, unknown>;
+
+    switch (messageType) {
+      case "text":
+        if ("text" in obj) {
+          return String(obj.text);
+        }
+        break;
+
+      case "image":
+        if ("image_key" in obj) {
+          return `[图片: ${obj.image_key}]`;
+        }
+        break;
+
+      case "file":
+        if ("file_key" in obj) {
+          const fileName = "file_name" in obj ? String(obj.file_name) : "未知文件";
+          return `[文件: ${fileName} (${obj.file_key})]`;
+        }
+        break;
+
+      case "audio":
+        if ("file_key" in obj) {
+          return `[语音消息: ${obj.file_key}]`;
+        }
+        break;
+
+      case "media":
+        if ("file_key" in obj) {
+          const fileName = "file_name" in obj ? String(obj.file_name) : "媒体文件";
+          return `[媒体: ${fileName} (${obj.file_key})]`;
+        }
+        if ("image_key" in obj) {
+          return `[媒体图片: ${obj.image_key}]`;
+        }
+        break;
+
+      case "sticker":
+        if ("file_key" in obj) {
+          return `[表情包: ${obj.file_key}]`;
+        }
+        break;
+
+      case "interactive":
+        // Interactive card - extract title or fallback
+        if ("header" in obj && typeof obj.header === "object" && obj.header !== null) {
+          const header = obj.header as Record<string, unknown>;
+          if ("title" in header && typeof header.title === "object" && header.title !== null) {
+            const title = header.title as Record<string, unknown>;
+            if ("content" in title) {
+              return `[卡片: ${title.content}]`;
+            }
+          }
+        }
+        return "[交互卡片]";
+
+      case "share_chat":
+        if ("chat_id" in obj) {
+          return `[分享群聊: ${obj.chat_id}]`;
+        }
+        break;
+
+      case "share_user":
+        if ("user_id" in obj) {
+          return `[分享用户: ${obj.user_id}]`;
+        }
+        break;
+
+      case "post":
+        // Rich text post - try to extract text content
+        if ("content" in obj && Array.isArray(obj.content)) {
+          const texts: string[] = [];
+          for (const paragraph of obj.content) {
+            if (Array.isArray(paragraph)) {
+              for (const element of paragraph) {
+                if (
+                  typeof element === "object" &&
+                  element !== null &&
+                  "tag" in element &&
+                  element.tag === "text" &&
+                  "text" in element
+                ) {
+                  texts.push(String((element as { text: unknown }).text));
+                }
+              }
+            }
+          }
+          if (texts.length > 0) {
+            return texts.join("");
+          }
+        }
+        // Try zh_cn title
+        if ("zh_cn" in obj && typeof obj.zh_cn === "object" && obj.zh_cn !== null) {
+          const zhCn = obj.zh_cn as Record<string, unknown>;
+          if ("title" in zhCn) {
+            return `[富文本: ${zhCn.title}]`;
+          }
+        }
+        return "[富文本消息]";
+
+      case "system":
+        // System event messages
+        return "[系统消息]";
+
+      case "location":
+        if ("name" in obj) {
+          return `[位置: ${obj.name}]`;
+        }
+        return "[位置分享]";
+
+      case "video_chat":
+        return "[视频会议]";
+
+      default:
+        // Unknown type - return type indicator
+        return `[${messageType}消息]`;
+    }
+
     return content;
   } catch {
     return content;

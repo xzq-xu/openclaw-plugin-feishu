@@ -300,7 +300,8 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
         try {
           const result = await sendMedia(feishuCfg, { to, mediaUrl });
           return { channel: "feishu", ...result };
-        } catch {
+        } catch (err) {
+          console.error("[feishu] sendMedia failed:", err);
           // Fallback to URL link
           const fallback = `📎 ${mediaUrl}`;
           const result = await sendTextMessage(feishuCfg, { to, text: fallback });

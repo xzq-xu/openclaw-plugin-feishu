@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 > This project is forked from [samzong/clawdbot-plugin-feishu](https://github.com/samzong/clawdbot-plugin-feishu). Thanks to the original author for the foundation.
 
+## [0.1.4] - 2025-01-30
+
+### Added
+
+- **Full message type support for receiving**: Now parses all Feishu message types
+  - `image` → `[图片: image_key]`
+  - `file` → `[文件: filename (file_key)]`
+  - `audio` → `[语音消息: file_key]`
+  - `media` → `[媒体: filename]`
+  - `sticker` → `[表情包: file_key]`
+  - `interactive` → `[卡片: title]` or `[交互卡片]`
+  - `share_chat` → `[分享群聊: chat_id]`
+  - `share_user` → `[分享用户: user_id]`
+  - `post` → Extracts text content or `[富文本: title]`
+  - `location` → `[位置: name]`
+  - `video_chat` → `[视频会议]`
+  - `system` → `[系统消息]`
+  - Unknown types → `[type消息]`
+
+### Fixed
+
+- **sendMedia error logging**: Now logs errors when media upload fails instead of silently falling back to URL text
+
 ## [0.1.3] - 2025-01-30
 
 ### Fixed

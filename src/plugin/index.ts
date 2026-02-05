@@ -6,7 +6,7 @@ import type { ClawdbotPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { feishuChannel } from "./channel.js";
 import { initializeRuntime } from "../core/runtime.js";
-import { createListMessagesTool } from "./tools.js";
+import { createListMessagesTool, createSendCardTool } from "./tools.js";
 import type { Config } from "../config/schema.js";
 
 // Re-export runtime management from core
@@ -30,7 +30,9 @@ const plugin = {
         (api as unknown as { config?: { channels?: { feishu?: Config } } }).config?.channels
           ?.feishu;
 
+      // Register Feishu tools
       registerTool(createListMessagesTool({ getConfig: getFeishuConfig }));
+      registerTool(createSendCardTool({ getConfig: getFeishuConfig }));
     }
   },
 };

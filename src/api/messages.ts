@@ -23,22 +23,19 @@ import { formatMentionsForFeishu } from "../core/parser.js";
 
 /**
  * Normalize a target string to a receive_id.
- * Handles prefixed formats like "user:xxx" or "chat:xxx".
+ * Handles prefixed formats like "feishu:", "lark:", "user:", "chat:", "group:", "dm:".
+ * Compatible with framework's normalizeFeishuTarget behavior.
  */
 export function normalizeTarget(target: string): string | null {
   const trimmed = target.trim();
   if (!trimmed) return null;
 
-  // Handle prefixed formats
-  if (trimmed.startsWith("user:")) {
-    return trimmed.slice(5).trim() || null;
-  }
-  if (trimmed.startsWith("chat:")) {
-    return trimmed.slice(5).trim() || null;
-  }
+  // Remove channel prefixes (feishu:, lark:)
+  let normalized = trimmed.replace(/^(feishu|lark):/i, "").trim();
+  // Remove target type prefixes (group:, chat:, user:, dm:)
+  normalized = normalized.replace(/^(group|chat|user|dm):/i, "").trim();
 
-  // Return as-is if no prefix
-  return trimmed;
+  return normalized || null;
 }
 
 /**

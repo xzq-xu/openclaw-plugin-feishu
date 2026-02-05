@@ -187,13 +187,101 @@ export function shouldRequireMention(
   return config.requireMention ?? true;
 }
 
+// ============================================================================
+// Tool Policy
+// ============================================================================
+
+export interface ToolPolicySender {
+  senderId?: string | null;
+  senderName?: string | null;
+}
+
 /**
- * Get tool policy for a group.
+ * Normalize sender key for matching.
+ */
+function normalizeSenderKey(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  // Remove @ prefix if present
+  const withoutAt = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
+  return withoutAt.toLowerCase();
+}
+
+/**
+ * Resolve tool policy by sender from toolsBySender config.
+ * Returns undefined if no match found.
+ */
+export function resolveToolsBySender(
+  toolsBySender: Record<string, { allow?: string[]; deny?: string[] } | undefined> | undefined,
+  sender: ToolPolicySender
+): { allow?: string[]; deny?: string[] } | undefined {
+  if (!toolsBySender) return undefined;
+
+  const entries = Object.entries(toolsBySender);
+  if (entries.length === 0) return undefined;
+
+  // Build normalized map and extract wildcard
+  const normalized = new Map<string, { allow?: string[]; deny?: string[] }>();
+  let wildcard: { allow?: string[]; deny?: string[] } | undefined;
+
+  for (const [rawKey, policy] of entries) {
+    if (!policy) continue;
+    const key = normalizeSenderKey(rawKey);
+    if (!key) continue;
+    if (key === "*") {
+      wildcard = policy;
+      continue;
+    }
+    if (!normalized.has(key)) {
+      normalized.set(key, policy);
+    }
+  }
+
+  // Build candidate keys from sender info
+  const candidates: string[] = [];
+  if (sender.senderId?.trim()) candidates.push(sender.senderId.trim());
+  if (sender.senderName?.trim()) candidates.push(sender.senderName.trim());
+
+  // Try to match candidates
+  for (const candidate of candidates) {
+    const key = normalizeSenderKey(candidate);
+    if (!key) continue;
+    const match = normalized.get(key);
+    if (match) return match;
+  }
+
+  // Fall back to wildcard
+  return wildcard;
+}
+
+/**
+ * Get tool policy for a group, with per-sender override support.
+ * Priority: toolsBySender[senderId] > tools > wildcard toolsBySender["*"]
  */
 export function resolveGroupToolPolicy(
   config: Config,
-  groupId: string | null | undefined
+  groupId: string | null | undefined,
+  sender?: ToolPolicySender
 ): { allow?: string[]; deny?: string[] } | undefined {
   const groupConfig = resolveGroupConfig(config, groupId);
-  return groupConfig?.tools;
+
+  // Try sender-specific policy first
+  if (sender && groupConfig?.toolsBySender) {
+    const senderPolicy = resolveToolsBySender(groupConfig.toolsBySender, sender);
+    if (senderPolicy) return senderPolicy;
+  }
+
+  // Fall back to group tools
+  if (groupConfig?.tools) {
+    return groupConfig.tools;
+  }
+
+  // Try wildcard group config ("*")
+  const wildcardConfig = resolveGroupConfig(config, "*");
+  if (sender && wildcardConfig?.toolsBySender) {
+    const wildcardSenderPolicy = resolveToolsBySender(wildcardConfig.toolsBySender, sender);
+    if (wildcardSenderPolicy) return wildcardSenderPolicy;
+  }
+
+  return wildcardConfig?.tools;
 }

@@ -2,7 +2,7 @@
     "id": "feishu",
     "name": "Feishu",
     "description": "Feishu/Lark channel plugin for OpenClaw",
-    "version": "0.2.3",
+    "version": "0.3.0",
     "channels": [
         "feishu"
     ],

@@ -4,7 +4,31 @@ All notable changes to this project will be documented in this file.
 
 > Inspired by [samzong/moltbot-channel-feishu](https://github.com/samzong/moltbot-channel-feishu).
 
-## [0.2.5] - 2026-02-05
+## [0.3.0] - 2026-02-05
+
+### Added
+
+- **Interactive Card Tool (`feishu_card`)**: AI can now send rich interactive cards
+  - Structured content with headers, dividers, and multi-column layouts
+  - Supports Feishu markdown (bold, italic, links, mentions)
+  - Configurable header colors (blue, green, red, etc.)
+  - Registered as an Agent Tool for seamless AI integration
+- **Multi-Account Support**: Configure multiple Feishu apps in a single OpenClaw instance
+  - New `accounts` configuration section for per-account settings
+  - Each account can have independent credentials, policies, and settings
+  - Accounts inherit from base config with per-account overrides
+  - New functions: `listAccountIds()`, `getDefaultAccountId()`, `resolveAccount()`, `normalizeAccountId()`
+- **Token Source Tracking**: Track where credentials come from (`config`, `file`, `env`, `none`)
+- **Response Prefix**: New `responsePrefix` config option for prefixing all bot messages
+- **App Secret File**: Support `appSecretFile` for reading secrets from file
+- **Per-Sender Tool Policy (`toolsBySender`)**: Configure tool permissions per user within groups
+  - Priority: `toolsBySender[senderId]` > `tools` > wildcard `toolsBySender["*"]`
+  - Supports matching by senderId or senderName
+
+### Changed
+
+- **Enhanced `normalizeTarget`**: Now supports more prefixes (`feishu:`, `lark:`, `group:`, `dm:`)
+  - Compatible with framework's `normalizeFeishuTarget` behavior
 
 ### Fixed
 

@@ -184,7 +184,13 @@ declare module "openclaw/plugin-sdk" {
   export interface ChannelGroupContext {
     cfg: ClawdbotConfig;
     groupId?: string | null;
-    [key: string]: unknown;
+    groupChannel?: string | null;
+    groupSpace?: string | null;
+    accountId?: string | null;
+    senderId?: string | null;
+    senderName?: string | null;
+    senderUsername?: string | null;
+    senderE164?: string | null;
   }
 
   export interface GroupToolPolicyConfig {
@@ -335,19 +341,21 @@ declare module "openclaw/plugin-sdk" {
     };
     configSchema?: { schema: Record<string, unknown> };
     config: {
-      listAccountIds(): string[];
-      resolveAccount(cfg: ClawdbotConfig): TAccount;
-      defaultAccountId(): string;
-      setAccountEnabled(params: { cfg: ClawdbotConfig; enabled: boolean }): ClawdbotConfig;
-      deleteAccount(params: { cfg: ClawdbotConfig }): ClawdbotConfig;
-      isConfigured(account: TAccount, cfg: ClawdbotConfig): boolean;
-      describeAccount(account: TAccount): {
+      listAccountIds(cfg: ClawdbotConfig): string[];
+      resolveAccount(cfg: ClawdbotConfig, accountId?: string | null): TAccount;
+      defaultAccountId?(cfg: ClawdbotConfig): string;
+      setAccountEnabled?(params: { cfg: ClawdbotConfig; accountId: string; enabled: boolean }): ClawdbotConfig;
+      deleteAccount?(params: { cfg: ClawdbotConfig; accountId: string }): ClawdbotConfig;
+      isConfigured?(account: TAccount, cfg: ClawdbotConfig): boolean;
+      describeAccount?(account: TAccount, cfg: ClawdbotConfig): {
         accountId: string;
+        name?: string;
         enabled: boolean;
         configured: boolean;
+        tokenSource?: string;
       };
-      resolveAllowFrom(params: { cfg: ClawdbotConfig }): (string | number)[];
-      formatAllowFrom(params: { allowFrom: (string | number)[] }): string[];
+      resolveAllowFrom?(params: { cfg: ClawdbotConfig; accountId?: string | null }): string[] | undefined;
+      formatAllowFrom?(params: { cfg: ClawdbotConfig; accountId?: string | null; allowFrom: (string | number)[] }): string[];
     };
     security?: {
       collectWarnings(params: { cfg: ClawdbotConfig }): string[];

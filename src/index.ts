@@ -57,6 +57,9 @@ export {
   checkGroupPolicy,
   shouldRequireMention,
   matchAllowlist,
+  resolveGroupToolPolicy,
+  resolveToolsBySender,
+  type ToolPolicySender,
 } from "./core/policy.js";
 
 export {
@@ -70,10 +73,23 @@ export {
 // Configuration
 export {
   ConfigSchema,
+  AccountConfigSchema,
+  ToolPolicySchema,
+  ToolsBySenderSchema,
   resolveCredentials,
+  resolveAccount,
+  listAccountIds,
+  getDefaultAccountId,
+  normalizeAccountId,
+  DEFAULT_ACCOUNT_ID,
   type Config,
+  type AccountConfig,
   type GroupConfig,
+  type ToolPolicy,
   type Credentials,
+  type TokenSource,
+  type ResolvedAccount,
+  type MergedAccountConfig,
 } from "./config/schema.js";
 
 // Types

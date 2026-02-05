@@ -8,10 +8,16 @@ import type {
   ChannelGroupContext,
   GroupToolPolicyConfig,
 } from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID, PAIRING_APPROVED_MESSAGE } from "openclaw/plugin-sdk";
+import { PAIRING_APPROVED_MESSAGE } from "openclaw/plugin-sdk";
 
-import type { Config } from "../config/schema.js";
-import { resolveCredentials } from "../config/schema.js";
+import type { Config, TokenSource } from "../config/schema.js";
+import {
+  resolveAccount as resolveAccountConfig,
+  listAccountIds,
+  getDefaultAccountId,
+  normalizeAccountId,
+  DEFAULT_ACCOUNT_ID,
+} from "../config/schema.js";
 import { probeConnection } from "../api/client.js";
 import { sendTextMessage, normalizeTarget, isValidId } from "../api/messages.js";
 import { sendMedia } from "../api/media.js";
@@ -28,8 +34,10 @@ import { feishuOnboarding } from "./onboarding.js";
 
 export interface ResolvedAccount {
   accountId: string;
+  name?: string;
   enabled: boolean;
   configured: boolean;
+  tokenSource: TokenSource;
   appId?: string;
   domain: "feishu" | "lark";
 }
@@ -38,16 +46,18 @@ export interface ResolvedAccount {
 // Account Resolution
 // ============================================================================
 
-function resolveAccount(cfg: ClawdbotConfig): ResolvedAccount {
+function resolveAccount(cfg: ClawdbotConfig, accountId?: string | null): ResolvedAccount {
   const feishuCfg = cfg.channels?.feishu as Config | undefined;
-  const credentials = resolveCredentials(feishuCfg);
+  const resolved = resolveAccountConfig(feishuCfg, accountId);
 
   return {
-    accountId: DEFAULT_ACCOUNT_ID,
-    enabled: feishuCfg?.enabled ?? false,
-    configured: credentials !== null,
-    appId: credentials?.appId,
-    domain: feishuCfg?.domain ?? "feishu",
+    accountId: resolved.accountId,
+    name: resolved.name,
+    enabled: resolved.enabled,
+    configured: resolved.credentials !== null,
+    tokenSource: resolved.credentials?.tokenSource ?? "none",
+    appId: resolved.credentials?.appId,
+    domain: resolved.config.domain,
   };
 }
 
@@ -102,19 +112,22 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
   // Agent prompt hints
   agentPrompt: {
     messageToolHints: () => [
-      "- Feishu history: use listMessages({ chatId, pageSize?, startTime?, endTime? }) to retrieve conversation history.",
+      "- Feishu history: use feishu_list_messages({ chatId, pageSize? }) to retrieve conversation history.",
       '- Feishu mentions: use <at user_id="open_id">Name</at> format. Example: <at user_id="ou_xxx">Alice</at> creates a clickable mention.',
       "- Feishu targeting: omit `target` to reply to current conversation. Explicit: `user:open_id` or `chat:chat_id`.",
-      "- Feishu supports interactive cards for rich messages.",
+      "- Feishu cards: use feishu_card({ title?, elements[], to? }) for rich interactive messages with formatted text, dividers, and multi-column layouts.",
     ],
   },
 
-  // Group tool policy resolution
+  // Group tool policy resolution (supports per-sender override via toolsBySender)
   groups: {
     resolveToolPolicy: (params: ChannelGroupContext): GroupToolPolicyConfig | undefined => {
       const cfg = params.cfg.channels?.feishu as Config | undefined;
       if (!cfg) return undefined;
-      return resolveGroupToolPolicy(cfg, params.groupId);
+      return resolveGroupToolPolicy(cfg, params.groupId, {
+        senderId: params.senderId,
+        senderName: params.senderName,
+      });
     },
   },
 
@@ -175,42 +188,114 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
     },
   },
 
-  // Account management
+  // Account management (supports multiple accounts)
   config: {
-    listAccountIds: () => [DEFAULT_ACCOUNT_ID],
-    resolveAccount: (cfg) => resolveAccount(cfg),
-    defaultAccountId: () => DEFAULT_ACCOUNT_ID,
+    listAccountIds: (cfg) => listAccountIds(cfg.channels?.feishu as Config | undefined),
+    resolveAccount: (cfg, accountId) => resolveAccount(cfg, accountId ?? undefined),
+    defaultAccountId: (cfg) => getDefaultAccountId(cfg.channels?.feishu as Config | undefined),
 
-    setAccountEnabled: ({ cfg, enabled }) => ({
-      ...cfg,
-      channels: {
-        ...cfg.channels,
-        feishu: { ...cfg.channels?.feishu, enabled },
-      },
-    }),
+    setAccountEnabled: ({ cfg, accountId, enabled }) => {
+      const normalizedId = normalizeAccountId(accountId);
+      const isDefault = normalizedId === DEFAULT_ACCOUNT_ID;
+      const feishuCfg = cfg.channels?.feishu as Config | undefined;
+      const hasAccounts = Boolean(feishuCfg?.accounts?.[normalizedId]);
 
-    deleteAccount: ({ cfg }) => {
-      const next = { ...cfg } as ClawdbotConfig;
-      const nextChannels = { ...cfg.channels };
-      delete (nextChannels as Record<string, unknown>).feishu;
-      if (Object.keys(nextChannels).length > 0) {
-        next.channels = nextChannels;
-      } else {
-        delete next.channels;
+      // If using accounts object, update there
+      if (hasAccounts || (!isDefault && feishuCfg?.accounts)) {
+        return {
+          ...cfg,
+          channels: {
+            ...cfg.channels,
+            feishu: {
+              ...feishuCfg,
+              accounts: {
+                ...feishuCfg?.accounts,
+                [normalizedId]: {
+                  ...feishuCfg?.accounts?.[normalizedId],
+                  enabled,
+                },
+              },
+            },
+          },
+        };
       }
-      return next;
+
+      // Default account without accounts object
+      return {
+        ...cfg,
+        channels: {
+          ...cfg.channels,
+          feishu: { ...feishuCfg, enabled },
+        },
+      };
     },
 
-    isConfigured: (_account, cfg) =>
-      Boolean(resolveCredentials(cfg.channels?.feishu as Config | undefined)),
+    deleteAccount: ({ cfg, accountId }) => {
+      const normalizedId = normalizeAccountId(accountId);
+      const isDefault = normalizedId === DEFAULT_ACCOUNT_ID;
+      const feishuCfg = cfg.channels?.feishu as Config | undefined;
+
+      // If deleting from accounts object
+      if (feishuCfg?.accounts?.[normalizedId]) {
+        const { [normalizedId]: _removed, ...remainingAccounts } = feishuCfg.accounts;
+        const hasRemainingAccounts = Object.keys(remainingAccounts).length > 0;
+
+        return {
+          ...cfg,
+          channels: {
+            ...cfg.channels,
+            feishu: {
+              ...feishuCfg,
+              accounts: hasRemainingAccounts ? remainingAccounts : undefined,
+            },
+          },
+        };
+      }
+
+      // If deleting default account (clear base config)
+      if (isDefault) {
+        const { appId: _a, appSecret: _s, appSecretFile: _f, ...remainingCfg } = feishuCfg ?? {};
+        const hasRemainingConfig = Object.keys(remainingCfg).length > 0;
+
+        if (!hasRemainingConfig) {
+          const next = { ...cfg } as ClawdbotConfig;
+          const nextChannels = { ...cfg.channels };
+          delete (nextChannels as Record<string, unknown>).feishu;
+          if (Object.keys(nextChannels).length > 0) {
+            next.channels = nextChannels;
+          } else {
+            delete next.channels;
+          }
+          return next;
+        }
+
+        return {
+          ...cfg,
+          channels: {
+            ...cfg.channels,
+            feishu: remainingCfg,
+          },
+        };
+      }
+
+      return cfg;
+    },
+
+    isConfigured: (account, _cfg) => account.configured,
 
     describeAccount: (account) => ({
       accountId: account.accountId,
+      name: account.name,
       enabled: account.enabled,
       configured: account.configured,
+      tokenSource: account.tokenSource,
     }),
 
-    resolveAllowFrom: ({ cfg }) => (cfg.channels?.feishu as Config | undefined)?.allowFrom ?? [],
+    resolveAllowFrom: ({ cfg, accountId }) => {
+      const feishuCfg = cfg.channels?.feishu as Config | undefined;
+      const resolved = resolveAccountConfig(feishuCfg, accountId ?? undefined);
+      return resolved.config.allowFrom.map((entry) => String(entry));
+    },
 
     formatAllowFrom: ({ allowFrom }) =>
       allowFrom

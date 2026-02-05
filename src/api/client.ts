@@ -8,9 +8,7 @@ import type { Config, Credentials } from "../config/schema.js";
 import { resolveCredentials } from "../config/schema.js";
 import type { ProbeResult } from "../types/index.js";
 
-// ============================================================================
 // Client Cache (Singleton Pattern)
-// ============================================================================
 
 interface CachedClient {
   client: Lark.Client;

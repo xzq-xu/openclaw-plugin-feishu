@@ -1,14 +1,8 @@
-/**
- * Configuration schema definitions using Zod.
- * All configuration types are derived from schemas via inference.
- */
+/** Configuration schema definitions using Zod */
 
 import { z } from "zod";
 
-// ============================================================================
 // Enums
-// ============================================================================
-
 export const DmPolicySchema = z.enum(["open", "pairing", "allowlist"]);
 export const GroupPolicySchema = z.enum(["open", "allowlist", "disabled"]);
 export const DomainSchema = z.enum(["feishu", "lark"]);
@@ -19,17 +13,24 @@ export const ChunkModeSchema = z.enum(["length", "newline"]);
 export const HeartbeatVisibilitySchema = z.enum(["visible", "hidden"]);
 export const ReplyToModeSchema = z.enum(["off", "first", "all"]);
 
-// ============================================================================
 // Sub-schemas
-// ============================================================================
-
-/** Tool policy for groups */
 export const ToolPolicySchema = z
   .object({
     allow: z.array(z.string()).optional(),
+    alsoAllow: z.array(z.string()).optional(),
     deny: z.array(z.string()).optional(),
   })
   .strict()
+  .superRefine((value, ctx) => {
+    // SDK compatibility: cannot set both allow and alsoAllow
+    if (value?.allow && value.allow.length > 0 && value?.alsoAllow && value.alsoAllow.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "tools policy cannot set both allow and alsoAllow in the same scope (merge alsoAllow into allow, or remove allow and use profile + alsoAllow)",
+      });
+    }
+  })
   .optional();
 
 /** Tool policy by sender (key: senderId, value: ToolPolicy) */
@@ -114,9 +115,7 @@ export const GroupConfigSchema = z
   })
   .strict();
 
-// ============================================================================
 // Account Schema (for multi-account support)
-// ============================================================================
 
 /** Account-level configuration (can override base config) */
 export const AccountConfigSchema = z
@@ -154,9 +153,7 @@ export const AccountConfigSchema = z
   })
   .strict();
 
-// ============================================================================
 // Main Configuration Schema
-// ============================================================================
 
 export const ConfigSchema = z
   .object({
@@ -227,9 +224,7 @@ export const ConfigSchema = z
     }
   });
 
-// ============================================================================
 // Type Exports (inferred from schemas)
-// ============================================================================
 
 export type Config = z.infer<typeof ConfigSchema>;
 export type AccountConfig = z.infer<typeof AccountConfigSchema>;
@@ -242,16 +237,12 @@ export type StreamingCard = z.infer<typeof StreamingCardSchema>;
 export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 export type AutoReplyConfig = z.infer<typeof AutoReplyConfigSchema>;
 
-// ============================================================================
 // Constants
-// ============================================================================
 
 /** Default account ID when not using multi-account */
 export const DEFAULT_ACCOUNT_ID = "default";
 
-// ============================================================================
 // Credential Resolution
-// ============================================================================
 
 /** Token source for credentials tracking */
 export type TokenSource = "config" | "file" | "env" | "none";

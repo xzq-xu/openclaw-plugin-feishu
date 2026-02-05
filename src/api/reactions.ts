@@ -6,9 +6,7 @@ import type { Config } from "../config/schema.js";
 import type { AddReactionParams, RemoveReactionParams, Reaction } from "../types/index.js";
 import { getApiClient } from "./client.js";
 
-// ============================================================================
 // Constants
-// ============================================================================
 
 /**
  * Common Feishu emoji types for convenience.
@@ -44,9 +42,7 @@ export const Emoji = {
 
 export type EmojiType = (typeof Emoji)[keyof typeof Emoji];
 
-// ============================================================================
 // API Operations
-// ============================================================================
 
 interface AddReactionResponse {
   code?: number;

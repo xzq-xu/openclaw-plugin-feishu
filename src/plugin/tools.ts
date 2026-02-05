@@ -6,9 +6,7 @@ import { Type, type Static } from "@sinclair/typebox";
 import type { Config } from "../config/schema.js";
 import { listMessages, sendCardMessage } from "../api/messages.js";
 
-// ============================================================================
 // Tool Schema Definitions
-// ============================================================================
 
 const ListMessagesToolSchema = Type.Object({
   chatId: Type.String({
@@ -99,9 +97,7 @@ const SendCardToolSchema = Type.Object({
 
 type SendCardParams = Static<typeof SendCardToolSchema>;
 
-// ============================================================================
 // Tool Result Helpers
-// ============================================================================
 
 interface ToolResultContent {
   type: "text";
@@ -129,9 +125,7 @@ function jsonResult(data: unknown): ToolResult {
   };
 }
 
-// ============================================================================
 // Tool Factories
-// ============================================================================
 
 export interface CreateToolOptions {
   getConfig: () => Config | undefined;
@@ -191,9 +185,7 @@ export function createListMessagesTool(opts: CreateToolOptions) {
   };
 }
 
-// ============================================================================
 // Interactive Card Tool
-// ============================================================================
 
 /**
  * Build Feishu card JSON structure from tool parameters.

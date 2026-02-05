@@ -17,9 +17,7 @@ import type {
 import { getApiClient } from "./client.js";
 import { formatMentionsForFeishu } from "../core/parser.js";
 
-// ============================================================================
 // Target Resolution
-// ============================================================================
 
 /**
  * Normalize a target string to a receive_id.
@@ -63,9 +61,7 @@ export function isValidId(id: string): boolean {
   );
 }
 
-// ============================================================================
 // Message Retrieval
-// ============================================================================
 
 interface GetMessageResponse {
   code?: number;
@@ -137,9 +133,7 @@ export async function getMessage(config: Config, messageId: string): Promise<Mes
   }
 }
 
-// ============================================================================
 // Message History
-// ============================================================================
 
 interface ListMessageResponse {
   code?: number;
@@ -242,9 +236,7 @@ export async function listMessages(
   }
 }
 
-// ============================================================================
 // Message Sending
-// ============================================================================
 
 interface SendMessageResponse {
   code?: number;

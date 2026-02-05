@@ -5,7 +5,7 @@
 import type {
   ChannelOnboardingAdapter,
   ChannelOnboardingDmPolicy,
-  ClawdbotConfig,
+  OpenClawConfig,
   DmPolicy,
   WizardPrompter,
 } from "openclaw/plugin-sdk";
@@ -17,11 +17,9 @@ import { probeConnection } from "../api/client.js";
 
 const channel = "feishu" as const;
 
-// ============================================================================
 // Config Helpers
-// ============================================================================
 
-function setDmPolicy(cfg: ClawdbotConfig, dmPolicy: DmPolicy): ClawdbotConfig {
+function setDmPolicy(cfg: OpenClawConfig, dmPolicy: DmPolicy): OpenClawConfig {
   const existingAllowFrom = cfg.channels?.feishu?.allowFrom as (string | number)[] | undefined;
   const allowFrom =
     dmPolicy === "open"
@@ -41,7 +39,7 @@ function setDmPolicy(cfg: ClawdbotConfig, dmPolicy: DmPolicy): ClawdbotConfig {
   };
 }
 
-function setAllowFrom(cfg: ClawdbotConfig, allowFrom: string[]): ClawdbotConfig {
+function setAllowFrom(cfg: OpenClawConfig, allowFrom: string[]): OpenClawConfig {
   return {
     ...cfg,
     channels: {
@@ -52,9 +50,9 @@ function setAllowFrom(cfg: ClawdbotConfig, allowFrom: string[]): ClawdbotConfig 
 }
 
 function setGroupPolicy(
-  cfg: ClawdbotConfig,
+  cfg: OpenClawConfig,
   groupPolicy: "open" | "allowlist" | "disabled"
-): ClawdbotConfig {
+): OpenClawConfig {
   return {
     ...cfg,
     channels: {
@@ -64,7 +62,7 @@ function setGroupPolicy(
   };
 }
 
-function setGroupAllowFrom(cfg: ClawdbotConfig, groupAllowFrom: string[]): ClawdbotConfig {
+function setGroupAllowFrom(cfg: OpenClawConfig, groupAllowFrom: string[]): OpenClawConfig {
   return {
     ...cfg,
     channels: {
@@ -81,14 +79,12 @@ function parseAllowFromInput(raw: string): string[] {
     .filter(Boolean);
 }
 
-// ============================================================================
 // Prompts
-// ============================================================================
 
 async function promptAllowFrom(params: {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   prompter: WizardPrompter;
-}): Promise<ClawdbotConfig> {
+}): Promise<OpenClawConfig> {
   const existing = (params.cfg.channels?.feishu?.allowFrom ?? []) as (string | number)[];
 
   await params.prompter.note(
@@ -141,9 +137,7 @@ async function showCredentialHelp(prompter: WizardPrompter): Promise<void> {
   );
 }
 
-// ============================================================================
 // DM Policy Adapter
-// ============================================================================
 
 const dmPolicy: ChannelOnboardingDmPolicy = {
   label: "Feishu",
@@ -155,9 +149,7 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
   promptAllowFrom,
 };
 
-// ============================================================================
 // Onboarding Adapter
-// ============================================================================
 
 export const feishuOnboarding: ChannelOnboardingAdapter = {
   channel,

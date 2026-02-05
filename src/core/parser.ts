@@ -1,194 +1,65 @@
-/**
- * Message event parsing utilities.
- * Uses Feishu native mention format throughout for compatibility.
- */
+/** Message event parsing utilities */
 
-import type {
-  MessageReceivedEvent,
-  MessageMention,
-  ParsedMessage,
-  MentionInfo,
-} from "../types/index.js";
+import type { MessageReceivedEvent, MessageMention, ParsedMessage, MentionInfo } from "../types/index.js";
 
-// ============================================================================
-// Content Parsing
-// ============================================================================
+type Obj = Record<string, unknown>;
 
-/**
- * Parse message content based on message type.
- * Extracts human-readable content from various message types.
- */
-export function parseMessageContent(content: string, messageType: string): string {
-  try {
-    const parsed: unknown = JSON.parse(content);
-
-    if (typeof parsed !== "object" || parsed === null) {
-      return content;
+function parsePostElements(content: unknown[]): string[] {
+  const parts: string[] = [];
+  for (const para of content) {
+    if (!Array.isArray(para)) continue;
+    const pp: string[] = [];
+    for (const el of para) {
+      if (typeof el !== "object" || el === null || !("tag" in el)) continue;
+      const e = el as Obj;
+      if (e.tag === "text" && e.text) pp.push(String(e.text));
+      else if (e.tag === "img" && e.image_key) pp.push(`[图片: ${e.image_key}]`);
+      else if (e.tag === "a" && e.text) pp.push(`${e.text}(${e.href ?? ""})`);
+      else if (e.tag === "at" && e.user_id) pp.push(`@${e.user_name ?? "用户"}`);
+      else if (e.tag === "emotion" && e.emoji_type) pp.push(`[${e.emoji_type}]`);
     }
-
-    const obj = parsed as Record<string, unknown>;
-
-    switch (messageType) {
-      case "text":
-        if ("text" in obj) {
-          return String(obj.text);
-        }
-        break;
-
-      case "image":
-        if ("image_key" in obj) {
-          return `[图片: ${obj.image_key}]`;
-        }
-        break;
-
-      case "file":
-        if ("file_key" in obj) {
-          const fileName = "file_name" in obj ? String(obj.file_name) : "未知文件";
-          return `[文件: ${fileName} (${obj.file_key})]`;
-        }
-        break;
-
-      case "audio":
-        if ("file_key" in obj) {
-          return `[语音消息: ${obj.file_key}]`;
-        }
-        break;
-
-      case "media":
-        if ("file_key" in obj) {
-          const fileName = "file_name" in obj ? String(obj.file_name) : "媒体文件";
-          return `[媒体: ${fileName} (${obj.file_key})]`;
-        }
-        if ("image_key" in obj) {
-          return `[媒体图片: ${obj.image_key}]`;
-        }
-        break;
-
-      case "sticker":
-        if ("file_key" in obj) {
-          return `[表情包: ${obj.file_key}]`;
-        }
-        break;
-
-      case "interactive":
-        // Interactive card - extract title or fallback
-        if ("header" in obj && typeof obj.header === "object" && obj.header !== null) {
-          const header = obj.header as Record<string, unknown>;
-          if ("title" in header && typeof header.title === "object" && header.title !== null) {
-            const title = header.title as Record<string, unknown>;
-            if ("content" in title) {
-              return `[卡片: ${title.content}]`;
-            }
-          }
-        }
-        return "[交互卡片]";
-
-      case "share_chat":
-        if ("chat_id" in obj) {
-          return `[分享群聊: ${obj.chat_id}]`;
-        }
-        break;
-
-      case "share_user":
-        if ("user_id" in obj) {
-          return `[分享用户: ${obj.user_id}]`;
-        }
-        break;
-
-      case "post":
-        // Rich text post - extract all content including images
-        if ("content" in obj && Array.isArray(obj.content)) {
-          const parts: string[] = [];
-          for (const paragraph of obj.content) {
-            if (Array.isArray(paragraph)) {
-              const paragraphParts: string[] = [];
-              for (const element of paragraph) {
-                if (typeof element === "object" && element !== null && "tag" in element) {
-                  const el = element as Record<string, unknown>;
-                  if (el.tag === "text" && "text" in el) {
-                    paragraphParts.push(String(el.text));
-                  } else if (el.tag === "img" && "image_key" in el) {
-                    paragraphParts.push(`[图片: ${el.image_key}]`);
-                  } else if (el.tag === "a" && "text" in el && "href" in el) {
-                    paragraphParts.push(`${el.text}(${el.href})`);
-                  } else if (el.tag === "at" && "user_id" in el) {
-                    const userName = "user_name" in el ? String(el.user_name) : "用户";
-                    paragraphParts.push(`@${userName}`);
-                  } else if (el.tag === "emotion" && "emoji_type" in el) {
-                    paragraphParts.push(`[${el.emoji_type}]`);
-                  }
-                }
-              }
-              if (paragraphParts.length > 0) {
-                parts.push(paragraphParts.join(""));
-              }
-            }
-          }
-          if (parts.length > 0) {
-            return parts.join("\n");
-          }
-        }
-        // Try zh_cn content structure (alternative format)
-        if ("zh_cn" in obj && typeof obj.zh_cn === "object" && obj.zh_cn !== null) {
-          const zhCn = obj.zh_cn as Record<string, unknown>;
-          if ("content" in zhCn && Array.isArray(zhCn.content)) {
-            const parts: string[] = [];
-            for (const paragraph of zhCn.content as unknown[]) {
-              if (Array.isArray(paragraph)) {
-                const paragraphParts: string[] = [];
-                for (const element of paragraph) {
-                  if (typeof element === "object" && element !== null && "tag" in element) {
-                    const el = element as Record<string, unknown>;
-                    if (el.tag === "text" && "text" in el) {
-                      paragraphParts.push(String(el.text));
-                    } else if (el.tag === "img" && "image_key" in el) {
-                      paragraphParts.push(`[图片: ${el.image_key}]`);
-                    }
-                  }
-                }
-                if (paragraphParts.length > 0) {
-                  parts.push(paragraphParts.join(""));
-                }
-              }
-            }
-            if (parts.length > 0) {
-              const title = "title" in zhCn && zhCn.title ? `${zhCn.title}\n` : "";
-              return title + parts.join("\n");
-            }
-          }
-          if ("title" in zhCn && zhCn.title) {
-            return `[富文本: ${zhCn.title}]`;
-          }
-        }
-        return "[富文本消息]";
-
-      case "system":
-        // System event messages
-        return "[系统消息]";
-
-      case "location":
-        if ("name" in obj) {
-          return `[位置: ${obj.name}]`;
-        }
-        return "[位置分享]";
-
-      case "video_chat":
-        return "[视频会议]";
-
-      default:
-        // Unknown type - return type indicator
-        return `[${messageType}消息]`;
-    }
-
-    return content;
-  } catch {
-    return content;
+    if (pp.length) parts.push(pp.join(""));
   }
+  return parts;
 }
 
-// ============================================================================
+/** Parse message content based on message type */
+export function parseMessageContent(content: string, messageType: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed !== "object" || parsed === null) return content;
+    const obj = parsed as Obj;
+
+    switch (messageType) {
+      case "text": return obj.text ? String(obj.text) : content;
+      case "image": return obj.image_key ? `[图片: ${obj.image_key}]` : content;
+      case "file": return obj.file_key ? `[文件: ${obj.file_name ?? "未知文件"} (${obj.file_key})]` : content;
+      case "audio": return obj.file_key ? `[语音消息: ${obj.file_key}]` : content;
+      case "sticker": return obj.file_key ? `[表情包: ${obj.file_key}]` : content;
+      case "share_chat": return obj.chat_id ? `[分享群聊: ${obj.chat_id}]` : content;
+      case "share_user": return obj.user_id ? `[分享用户: ${obj.user_id}]` : content;
+      case "location": return obj.name ? `[位置: ${obj.name}]` : "[位置分享]";
+      case "system": return "[系统消息]";
+      case "video_chat": return "[视频会议]";
+      case "media":
+        if (obj.file_key) return `[媒体: ${obj.file_name ?? "媒体文件"} (${obj.file_key})]`;
+        if (obj.image_key) return `[媒体图片: ${obj.image_key}]`;
+        return content;
+      case "interactive":
+        const h = obj.header as Obj | undefined, t = h?.title as Obj | undefined;
+        return t?.content ? `[卡片: ${t.content}]` : "[交互卡片]";
+      case "post":
+        if (Array.isArray(obj.content)) { const parts = parsePostElements(obj.content); if (parts.length) return parts.join("\n"); }
+        const zhCn = obj.zh_cn as Obj | undefined;
+        if (zhCn && Array.isArray(zhCn.content)) { const parts = parsePostElements(zhCn.content as unknown[]); if (parts.length) return (zhCn.title ? `${zhCn.title}\n` : "") + parts.join("\n"); }
+        if (zhCn?.title) return `[富文本: ${zhCn.title}]`;
+        return "[富文本消息]";
+      default: return content;
+    }
+  } catch { return content; }
+}
+
 // Mention Detection
-// ============================================================================
 
 /**
  * Check if the bot was mentioned in a message.
@@ -288,9 +159,7 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// ============================================================================
 // Event Parsing
-// ============================================================================
 
 /**
  * Parse a raw message event into a standardized format.
@@ -400,9 +269,7 @@ export function parseMessageEvent(event: MessageReceivedEvent, botOpenId?: strin
   };
 }
 
-// ============================================================================
 // Outbound Mention Formatting (Legacy Support)
-// ============================================================================
 
 /**
  * Convert @[Name](open_id) format to Feishu native <at user_id="open_id">Name</at> format.

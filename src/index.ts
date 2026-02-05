@@ -33,6 +33,7 @@ export {
   sendImage,
   sendFile,
   detectFileType,
+  isImageOptimizationAvailable,
 } from "./api/media.js";
 
 export { addReaction, removeReaction, listReactions, Emoji } from "./api/reactions.js";

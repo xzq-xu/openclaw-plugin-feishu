@@ -4,9 +4,7 @@
 
 import type { Config, GroupConfig } from "../config/schema.js";
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export interface PolicyResult {
   allowed: boolean;
@@ -19,9 +17,7 @@ export interface AllowlistMatch {
   matchSource?: "wildcard" | "id" | "name";
 }
 
-// ============================================================================
 // Allowlist Matching
-// ============================================================================
 
 /**
  * Check if a sender matches an allowlist.
@@ -57,9 +53,7 @@ export function matchAllowlist(
   return { allowed: false };
 }
 
-// ============================================================================
 // DM Policy
-// ============================================================================
 
 /**
  * Check if a DM from a sender is allowed.
@@ -92,9 +86,7 @@ export function checkDmPolicy(
   }
 }
 
-// ============================================================================
 // Group Policy
-// ============================================================================
 
 /**
  * Resolve group-specific configuration.
@@ -160,9 +152,7 @@ export function checkGroupPolicy(
   }
 }
 
-// ============================================================================
 // Mention Policy
-// ============================================================================
 
 /**
  * Check if an @mention is required for the given context.
@@ -187,9 +177,7 @@ export function shouldRequireMention(
   return config.requireMention ?? true;
 }
 
-// ============================================================================
 // Tool Policy
-// ============================================================================
 
 export interface ToolPolicySender {
   senderId?: string | null;

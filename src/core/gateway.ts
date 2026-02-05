@@ -1,179 +1,70 @@
-/**
- * WebSocket gateway for real-time Feishu events.
- * Includes automatic reconnection with exponential backoff.
- */
+/** WebSocket gateway for real-time Feishu events with auto-reconnect */
 
 import * as Lark from "@larksuiteoapi/node-sdk";
-import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-sdk";
 import type { Config } from "../config/schema.js";
 import type { MessageReceivedEvent, BotAddedEvent, BotRemovedEvent } from "../types/index.js";
 import { createWsClient, probeConnection } from "../api/client.js";
 import { handleMessage, createBatchFlushHandler } from "./handler.js";
 import { BatchProcessor } from "./batch-processor.js";
 
-// ============================================================================
-// Reconnection Configuration
-// ============================================================================
+const RECONNECT_BASE_MS = 1000, RECONNECT_MAX_MS = 60000, RECONNECT_MAX_ATTEMPTS = 20;
+const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000, DEDUP_CLEANUP_MS = 60 * 60 * 1000;
 
-const RECONNECT_BASE_DELAY_MS = 1000;
-const RECONNECT_MAX_DELAY_MS = 60000;
-const RECONNECT_MAX_ATTEMPTS = 20;
-
-// ============================================================================
-// Event Deduplication & Message Watermark
-// ============================================================================
-
-const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours (Feishu's event_id uniqueness window)
-const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Cleanup every hour
-
-// Watermark: track the latest message create_time per chat to filter stale messages on reconnect
 const chatWatermarks = new Map<string, number>();
-
-/**
- * Check if message is stale based on watermark.
- * Returns true if message should be skipped.
- */
-function isStaleMessage(chatId: string, createTime: number): boolean {
-  const watermark = chatWatermarks.get(chatId) ?? 0;
-  return createTime <= watermark;
-}
-
-/**
- * Update watermark for a chat after successfully processing a message.
- */
-function updateWatermark(chatId: string, createTime: number): void {
-  const current = chatWatermarks.get(chatId) ?? 0;
-  if (createTime > current) {
-    chatWatermarks.set(chatId, createTime);
-  }
-}
-
-interface DedupEntry {
-  timestamp: number;
-}
-
-const processedEvents = new Map<string, DedupEntry>();
+const processedEvents = new Map<string, number>();
 let dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-/**
- * Check if an event has already been processed.
- * Returns true if duplicate (should skip), false if new (should process).
- */
+function isStaleMessage(chatId: string, createTime: number): boolean {
+  return createTime <= (chatWatermarks.get(chatId) ?? 0);
+}
+
+function updateWatermark(chatId: string, createTime: number): void {
+  const cur = chatWatermarks.get(chatId) ?? 0;
+  if (createTime > cur) chatWatermarks.set(chatId, createTime);
+}
+
 function isDuplicateEvent(eventId: string): boolean {
-  const existing = processedEvents.get(eventId);
-  if (existing) {
-    return true;
-  }
-  // Mark as processed
-  processedEvents.set(eventId, { timestamp: Date.now() });
+  if (processedEvents.has(eventId)) return true;
+  processedEvents.set(eventId, Date.now());
   return false;
 }
 
-/**
- * Clean up old dedup entries to prevent memory leak.
- */
-function cleanupDedupEntries(): void {
-  const now = Date.now();
-  const cutoff = now - DEDUP_WINDOW_MS;
-  for (const [eventId, entry] of processedEvents) {
-    if (entry.timestamp < cutoff) {
-      processedEvents.delete(eventId);
-    }
-  }
-}
-
-/**
- * Start the dedup cleanup timer.
- */
 function startDedupCleanup(): void {
   if (dedupCleanupTimer) return;
-  dedupCleanupTimer = setInterval(cleanupDedupEntries, DEDUP_CLEANUP_INTERVAL_MS);
+  dedupCleanupTimer = setInterval(() => {
+    const cutoff = Date.now() - DEDUP_WINDOW_MS;
+    for (const [id, ts] of processedEvents) if (ts < cutoff) processedEvents.delete(id);
+  }, DEDUP_CLEANUP_MS);
 }
 
-/**
- * Stop the dedup cleanup timer.
- */
 function stopDedupCleanup(): void {
-  if (dedupCleanupTimer) {
-    clearInterval(dedupCleanupTimer);
-    dedupCleanupTimer = null;
-  }
+  if (dedupCleanupTimer) { clearInterval(dedupCleanupTimer); dedupCleanupTimer = null; }
   processedEvents.clear();
 }
 
-// ============================================================================
 // Per-Chat Message Queue (Serial Processing)
-// ============================================================================
-
-interface QueuedMessage {
-  event: MessageReceivedEvent;
-  handler: () => Promise<void>;
-}
-
-interface ChatQueue {
-  messages: QueuedMessage[];
-  processing: boolean;
-}
-
+interface ChatQueue { messages: { handler: () => Promise<void> }[]; processing: boolean }
 const chatQueues = new Map<string, ChatQueue>();
+type Logger = { log: (msg: string) => void; error: (msg: string) => void };
 
-/**
- * Enqueue a message for serial processing within its chat.
- * Messages in the same chat are processed one at a time.
- * Different chats can process in parallel.
- */
-function enqueueMessage(
-  chatId: string,
-  event: MessageReceivedEvent,
-  handler: () => Promise<void>,
-  logger: { log: (msg: string) => void; error: (msg: string) => void }
-): void {
-  let queue = chatQueues.get(chatId);
-  if (!queue) {
-    queue = { messages: [], processing: false };
-    chatQueues.set(chatId, queue);
-  }
-
-  queue.messages.push({ event, handler });
-  logger.log(`Gateway: message queued for chat ${chatId} (queue size: ${queue.messages.length})`);
-
-  // Start processing if not already running
-  if (!queue.processing) {
-    processQueue(chatId, logger);
-  }
+function enqueueMessage(chatId: string, _event: MessageReceivedEvent, handler: () => Promise<void>, logger: Logger): void {
+  let q = chatQueues.get(chatId);
+  if (!q) { q = { messages: [], processing: false }; chatQueues.set(chatId, q); }
+  q.messages.push({ handler });
+  if (!q.processing) processQueue(chatId, logger);
 }
 
-/**
- * Process messages in a chat queue serially.
- */
-async function processQueue(
-  chatId: string,
-  logger: { log: (msg: string) => void; error: (msg: string) => void }
-): Promise<void> {
-  const queue = chatQueues.get(chatId);
-  if (!queue || queue.processing) return;
-
-  queue.processing = true;
-  logger.log(`Gateway: starting queue processing for chat ${chatId}`);
-
-  while (queue.messages.length > 0) {
-    const item = queue.messages.shift();
-    if (item) {
-      try {
-        await item.handler();
-      } catch (err) {
-        logger.error(`Gateway: error processing queued message: ${String(err)}`);
-      }
-    }
+async function processQueue(chatId: string, logger: Logger): Promise<void> {
+  const q = chatQueues.get(chatId);
+  if (!q || q.processing) return;
+  q.processing = true;
+  while (q.messages.length) {
+    const item = q.messages.shift();
+    if (item) try { await item.handler(); } catch (e) { logger.error(`Gateway queue error: ${e}`); }
   }
-
-  queue.processing = false;
-  logger.log(`Gateway: queue processing completed for chat ${chatId}`);
-
-  // Clean up empty queues
-  if (queue.messages.length === 0) {
-    chatQueues.delete(chatId);
-  }
+  q.processing = false;
+  if (!q.messages.length) chatQueues.delete(chatId);
 }
 
 /**
@@ -183,12 +74,10 @@ function clearAllQueues(): void {
   chatQueues.clear();
 }
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export interface GatewayOptions {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   runtime?: RuntimeEnv;
   abortSignal?: AbortSignal;
 }
@@ -204,9 +93,7 @@ export interface GatewayState {
   shouldStop: boolean;
 }
 
-// ============================================================================
 // Gateway State
-// ============================================================================
 
 const state: GatewayState = {
   botName: undefined,
@@ -232,22 +119,18 @@ export function getBotOpenId(): string | undefined {
   return state.botOpenId;
 }
 
-// ============================================================================
 // Reconnection Helpers
-// ============================================================================
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function calculateBackoffDelay(attempt: number): number {
-  const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, attempt);
-  return Math.min(delay, RECONNECT_MAX_DELAY_MS);
+  const delay = RECONNECT_BASE_MS * Math.pow(2, attempt);
+  return Math.min(delay, RECONNECT_MAX_MS);
 }
 
-// ============================================================================
 // Gateway Lifecycle
-// ============================================================================
 
 export async function startGateway(options: GatewayOptions): Promise<void> {
   const { cfg, runtime, abortSignal } = options;

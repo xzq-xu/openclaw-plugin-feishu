@@ -3,7 +3,7 @@
  * Creates a dispatcher that sends agent replies back to Feishu.
  */
 
-import type { ClawdbotConfig, RuntimeEnv, ReplyPayload, PluginRuntime } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, RuntimeEnv, ReplyPayload, PluginRuntime } from "openclaw/plugin-sdk";
 import {
   createReplyPrefixContext,
   createTypingCallbacks,
@@ -17,12 +17,10 @@ import { addReaction, removeReaction, Emoji } from "../api/reactions.js";
 import { formatMentionsForFeishu } from "./parser.js";
 import type { Config } from "../config/schema.js";
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export interface CreateReplyDispatcherParams {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   agentId: string;
   runtime: RuntimeEnv;
   chatId: string;
@@ -34,9 +32,7 @@ interface TypingIndicatorState {
   emoji: string;
 }
 
-// ============================================================================
 // Reply Dispatcher
-// ============================================================================
 
 export function createReplyDispatcher(params: CreateReplyDispatcherParams) {
   const core = getRuntime() as PluginRuntime;

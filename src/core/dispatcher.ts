@@ -8,9 +8,7 @@ import { sendTextMessage, getMessage } from "../api/messages.js";
 import { addReaction, removeReaction, Emoji } from "../api/reactions.js";
 import { checkDmPolicy, checkGroupPolicy, shouldRequireMention } from "./policy.js";
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export interface DispatchContext {
   config: Config;
@@ -30,9 +28,7 @@ export interface TypingIndicator {
   reactionId: string;
 }
 
-// ============================================================================
 // Typing Indicator
-// ============================================================================
 
 /**
  * Add a typing indicator (reaction) to a message.
@@ -69,9 +65,7 @@ export async function removeTypingIndicator(
   }
 }
 
-// ============================================================================
 // Message Validation
-// ============================================================================
 
 /**
  * Validate an incoming message against policies.
@@ -117,9 +111,7 @@ export function validateMessage(ctx: DispatchContext): DispatchResult {
   return { processed: true };
 }
 
-// ============================================================================
 // Quoted Message Context
-// ============================================================================
 
 /**
  * Fetch quoted message content if replying to a message.
@@ -146,9 +138,7 @@ export async function fetchQuotedContent(
   return undefined;
 }
 
-// ============================================================================
 // Reply Sending
-// ============================================================================
 
 /**
  * Send a reply to a message.

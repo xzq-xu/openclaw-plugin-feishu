@@ -54,7 +54,7 @@ declare module "openclaw/plugin-sdk" {
   }
 
   export function createReplyPrefixContext(params: {
-    cfg: ClawdbotConfig;
+    cfg: OpenClawConfig;
     agentId: string;
   }): ReplyPrefixContext;
 
@@ -90,13 +90,13 @@ declare module "openclaw/plugin-sdk" {
     channel: {
       routing: {
         resolveAgentRoute(params: {
-          cfg: ClawdbotConfig;
+          cfg: OpenClawConfig;
           channel: string;
           peer: { kind: string; id: string };
         }): { sessionKey: string; accountId: string; agentId: string };
       };
       reply: {
-        resolveEnvelopeFormatOptions(cfg: ClawdbotConfig): unknown;
+        resolveEnvelopeFormatOptions(cfg: OpenClawConfig): unknown;
         formatAgentEnvelope(params: {
           channel: string;
           from: string;
@@ -120,20 +120,20 @@ declare module "openclaw/plugin-sdk" {
         };
         dispatchReplyFromConfig(params: {
           ctx: unknown;
-          cfg: ClawdbotConfig;
+          cfg: OpenClawConfig;
           dispatcher: unknown;
           replyOptions: unknown;
         }): Promise<{ queuedFinal: boolean; counts: { final: number } }>;
-        resolveHumanDelayConfig(cfg: ClawdbotConfig, agentId: string): unknown;
+        resolveHumanDelayConfig(cfg: OpenClawConfig, agentId: string): unknown;
       };
       text: {
         resolveTextChunkLimit(params: {
-          cfg: ClawdbotConfig;
+          cfg: OpenClawConfig;
           channel: string;
           defaultLimit: number;
         }): number;
-        resolveChunkMode(cfg: ClawdbotConfig, channel: string): string;
-        resolveMarkdownTableMode(params: { cfg: ClawdbotConfig; channel: string }): string;
+        resolveChunkMode(cfg: OpenClawConfig, channel: string): string;
+        resolveMarkdownTableMode(params: { cfg: OpenClawConfig; channel: string }): string;
         convertMarkdownTables(text: string, mode: string): string;
         chunkTextWithMode(text: string, limit: number, mode: string): string[];
       };
@@ -163,7 +163,7 @@ declare module "openclaw/plugin-sdk" {
     [key: string]: unknown;
   }
 
-  export interface ClawdbotConfig {
+  export interface OpenClawConfig {
     channels?: {
       feishu?: Record<string, unknown>;
       [key: string]: unknown;
@@ -182,7 +182,7 @@ declare module "openclaw/plugin-sdk" {
   }
 
   export interface ChannelGroupContext {
-    cfg: ClawdbotConfig;
+    cfg: OpenClawConfig;
     groupId?: string | null;
     groupChannel?: string | null;
     groupSpace?: string | null;
@@ -219,17 +219,17 @@ declare module "openclaw/plugin-sdk" {
     channel: string;
     policyKey: string;
     allowFromKey: string;
-    getCurrent(cfg: ClawdbotConfig): DmPolicy;
-    setPolicy(cfg: ClawdbotConfig, policy: DmPolicy): ClawdbotConfig;
+    getCurrent(cfg: OpenClawConfig): DmPolicy;
+    setPolicy(cfg: OpenClawConfig, policy: DmPolicy): OpenClawConfig;
     promptAllowFrom(params: {
-      cfg: ClawdbotConfig;
+      cfg: OpenClawConfig;
       prompter: WizardPrompter;
-    }): Promise<ClawdbotConfig>;
+    }): Promise<OpenClawConfig>;
   }
 
   export interface ChannelOnboardingAdapter {
     channel: string;
-    getStatus(params: { cfg: ClawdbotConfig }): Promise<{
+    getStatus(params: { cfg: OpenClawConfig }): Promise<{
       channel: string;
       configured: boolean;
       statusLines: string[];
@@ -237,11 +237,11 @@ declare module "openclaw/plugin-sdk" {
       quickstartScore?: number;
     }>;
     configure(params: {
-      cfg: ClawdbotConfig;
+      cfg: OpenClawConfig;
       prompter: WizardPrompter;
-    }): Promise<{ cfg: ClawdbotConfig; accountId: string }>;
+    }): Promise<{ cfg: OpenClawConfig; accountId: string }>;
     dmPolicy: ChannelOnboardingDmPolicy;
-    disable(cfg: ClawdbotConfig): ClawdbotConfig;
+    disable(cfg: OpenClawConfig): OpenClawConfig;
   }
 
   export interface ChannelPluginCapabilities {
@@ -252,6 +252,7 @@ declare module "openclaw/plugin-sdk" {
     reactions: boolean;
     edit: boolean;
     reply: boolean;
+    blockStreaming?: boolean;
   }
 
   export interface ChannelPluginOutbound {
@@ -260,12 +261,12 @@ declare module "openclaw/plugin-sdk" {
     textChunkLimit: number;
     chunker(text: string, limit: number): string[];
     sendText(params: {
-      cfg: ClawdbotConfig;
+      cfg: OpenClawConfig;
       to: string;
       text: string;
     }): Promise<{ channel: string; messageId: string; chatId: string }>;
     sendMedia(params: {
-      cfg: ClawdbotConfig;
+      cfg: OpenClawConfig;
       to: string;
       text?: string;
       mediaUrl?: string;
@@ -282,7 +283,7 @@ declare module "openclaw/plugin-sdk" {
       port: null;
     };
     buildChannelSummary(params: { snapshot: Record<string, unknown> }): Record<string, unknown>;
-    probeAccount(params: { cfg: ClawdbotConfig }): Promise<{
+    probeAccount(params: { cfg: OpenClawConfig }): Promise<{
       ok: boolean;
       error?: string;
       appId?: string;
@@ -298,7 +299,7 @@ declare module "openclaw/plugin-sdk" {
 
   export interface ChannelPluginGateway {
     startAccount(ctx: {
-      cfg: ClawdbotConfig;
+      cfg: OpenClawConfig;
       accountId: string;
       runtime?: RuntimeEnv;
       abortSignal?: AbortSignal;
@@ -322,7 +323,7 @@ declare module "openclaw/plugin-sdk" {
     pairing?: {
       idLabel: string;
       normalizeAllowEntry(entry: string): string;
-      notifyApproval(params: { cfg: ClawdbotConfig; id: string }): Promise<void>;
+      notifyApproval(params: { cfg: OpenClawConfig; id: string }): Promise<void>;
     };
     capabilities: ChannelPluginCapabilities;
     agentPrompt?: {
@@ -334,35 +335,35 @@ declare module "openclaw/plugin-sdk" {
     reload?: { configPrefixes: string[] };
     threading?: {
       resolveReplyToMode?(params: {
-        cfg: ClawdbotConfig;
+        cfg: OpenClawConfig;
         accountId?: string | null;
         chatType?: string | null;
       }): "off" | "first" | "all";
     };
     configSchema?: { schema: Record<string, unknown> };
     config: {
-      listAccountIds(cfg: ClawdbotConfig): string[];
-      resolveAccount(cfg: ClawdbotConfig, accountId?: string | null): TAccount;
-      defaultAccountId?(cfg: ClawdbotConfig): string;
-      setAccountEnabled?(params: { cfg: ClawdbotConfig; accountId: string; enabled: boolean }): ClawdbotConfig;
-      deleteAccount?(params: { cfg: ClawdbotConfig; accountId: string }): ClawdbotConfig;
-      isConfigured?(account: TAccount, cfg: ClawdbotConfig): boolean;
-      describeAccount?(account: TAccount, cfg: ClawdbotConfig): {
+      listAccountIds(cfg: OpenClawConfig): string[];
+      resolveAccount(cfg: OpenClawConfig, accountId?: string | null): TAccount;
+      defaultAccountId?(cfg: OpenClawConfig): string;
+      setAccountEnabled?(params: { cfg: OpenClawConfig; accountId: string; enabled: boolean }): OpenClawConfig;
+      deleteAccount?(params: { cfg: OpenClawConfig; accountId: string }): OpenClawConfig;
+      isConfigured?(account: TAccount, cfg: OpenClawConfig): boolean;
+      describeAccount?(account: TAccount, cfg: OpenClawConfig): {
         accountId: string;
         name?: string;
         enabled: boolean;
         configured: boolean;
         tokenSource?: string;
       };
-      resolveAllowFrom?(params: { cfg: ClawdbotConfig; accountId?: string | null }): string[] | undefined;
-      formatAllowFrom?(params: { cfg: ClawdbotConfig; accountId?: string | null; allowFrom: (string | number)[] }): string[];
+      resolveAllowFrom?(params: { cfg: OpenClawConfig; accountId?: string | null }): string[] | undefined;
+      formatAllowFrom?(params: { cfg: OpenClawConfig; accountId?: string | null; allowFrom: (string | number)[] }): string[];
     };
     security?: {
-      collectWarnings(params: { cfg: ClawdbotConfig }): string[];
+      collectWarnings(params: { cfg: OpenClawConfig }): string[];
     };
     setup?: {
       resolveAccountId(): string;
-      applyAccountConfig(params: { cfg: ClawdbotConfig }): ClawdbotConfig;
+      applyAccountConfig(params: { cfg: OpenClawConfig }): OpenClawConfig;
     };
     onboarding: ChannelOnboardingAdapter;
     messaging: {
@@ -375,22 +376,22 @@ declare module "openclaw/plugin-sdk" {
     directory: {
       self(): Promise<null>;
       listPeers(params: {
-        cfg: ClawdbotConfig;
+        cfg: OpenClawConfig;
         query?: string;
         limit?: number;
       }): Promise<{ kind: "user"; id: string; name?: string }[]>;
       listGroups(params: {
-        cfg: ClawdbotConfig;
+        cfg: OpenClawConfig;
         query?: string;
         limit?: number;
       }): Promise<{ kind: "group"; id: string; name?: string }[]>;
       listPeersLive(params: {
-        cfg: ClawdbotConfig;
+        cfg: OpenClawConfig;
         query?: string;
         limit?: number;
       }): Promise<{ kind: "user"; id: string; name?: string }[]>;
       listGroupsLive(params: {
-        cfg: ClawdbotConfig;
+        cfg: OpenClawConfig;
         query?: string;
         limit?: number;
       }): Promise<{ kind: "group"; id: string; name?: string }[]>;

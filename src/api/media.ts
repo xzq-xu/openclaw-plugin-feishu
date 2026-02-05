@@ -7,28 +7,32 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import type { Config } from "../config/schema.js";
 import type {
-  UploadImageParams,
-  UploadFileParams,
-  DownloadImageParams,
-  DownloadFileParams,
-  SendMediaParams,
-  SendResult,
-  ImageUploadResult,
-  FileUploadResult,
-  FileType,
-  SendImageParams,
-  SendFileParams,
+  UploadImageParams, UploadFileParams, DownloadImageParams, DownloadFileParams,
+  SendMediaParams, SendResult, ImageUploadResult, FileUploadResult, FileType,
+  SendImageParams, SendFileParams,
 } from "../types/index.js";
 import { getApiClient } from "./client.js";
 import { normalizeTarget, resolveReceiveIdType } from "./messages.js";
 
-// ============================================================================
-// File Type Detection
-// ============================================================================
+// SDK image optimization (HEIC conversion, smart compression)
+type LoadWebMediaFn = (url: string, maxBytes?: number) => Promise<{ buffer: Buffer; contentType: string; fileName?: string }>;
+let sdkLoadWebMedia: LoadWebMediaFn | null = null;
 
-/**
- * Detect file type from extension for upload.
- */
+export function initImageOptimization(): void {
+  import("openclaw/plugin-sdk")
+    .then((sdk) => {
+      const fn = (sdk as Record<string, unknown>)["loadWebMedia"];
+      if (typeof fn === "function") sdkLoadWebMedia = fn as LoadWebMediaFn;
+    })
+    .catch(() => {});
+}
+initImageOptimization();
+
+export function isImageOptimizationAvailable(): boolean {
+  return sdkLoadWebMedia !== null;
+}
+
+/** Detect file type from extension */
 export function detectFileType(fileName: string): FileType {
   const ext = path.extname(fileName).toLowerCase();
   switch (ext) {
@@ -55,424 +59,152 @@ export function detectFileType(fileName: string): FileType {
   }
 }
 
-/**
- * Check if extension indicates an image.
- */
+const IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".tiff"];
+
 function isImageExtension(fileName: string): boolean {
-  const ext = path.extname(fileName).toLowerCase();
-  return [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".tiff"].includes(ext);
+  return IMAGE_EXTS.includes(path.extname(fileName).toLowerCase());
 }
 
-/**
- * Check if a string is a local file path (not a URL).
- */
 function isLocalPath(urlOrPath: string): boolean {
-  if (urlOrPath.startsWith("/") || urlOrPath.startsWith("~") || urlOrPath.startsWith("./")) {
-    return true;
-  }
-  if (/^[a-zA-Z]:/.test(urlOrPath)) {
-    return true; // Windows drive letter
-  }
-  // Check for file:// protocol
-  if (urlOrPath.startsWith("file://")) {
-    return true;
-  }
+  if (urlOrPath.startsWith("/") || urlOrPath.startsWith("~") || urlOrPath.startsWith("./")) return true;
+  if (/^[a-zA-Z]:/.test(urlOrPath)) return true;
+  if (urlOrPath.startsWith("file://")) return true;
   try {
-    const url = new URL(urlOrPath);
-    return url.protocol === "file:";
+    return new URL(urlOrPath).protocol === "file:";
   } catch {
-    // Not a valid URL - could be a relative path like "folder/file.png"
-    // Check if it looks like a path (contains / or \ or ends with known extension)
-    if (urlOrPath.includes("/") || urlOrPath.includes("\\")) {
-      return true;
-    }
-    return false;
+    return urlOrPath.includes("/") || urlOrPath.includes("\\");
   }
 }
 
-/**
- * Resolve file path, trying multiple possible locations.
- * Priority: /tmp/ and /workspaces first, then other paths.
- * Returns the resolved absolute path or null if not found.
- */
 function resolveFilePath(inputPath: string): string | null {
-  // Remove file:// prefix if present
-  let cleanPath = inputPath;
-  if (cleanPath.startsWith("file://")) {
-    cleanPath = cleanPath.slice(7);
-  }
+  let cleanPath = inputPath.replace(/^file:\/\//, "");
+  if (cleanPath.startsWith("~")) cleanPath = cleanPath.replace("~", process.env["HOME"] ?? "");
 
-  // Expand ~ to home directory
-  if (cleanPath.startsWith("~")) {
-    cleanPath = cleanPath.replace("~", process.env["HOME"] ?? "");
-  }
-
-  // For relative paths, try multiple base directories in priority order
+  const home = process.env["HOME"] ?? "";
   const searchPaths = [
-    // Priority 1: /tmp/ directory (Agent sandbox, generated files)
     path.resolve("/tmp", cleanPath),
-    // Priority 2: /workspaces (Codespaces, devcontainers)
     path.resolve("/workspaces", cleanPath),
-    // Priority 3: Current working directory
     path.resolve(process.cwd(), cleanPath),
-    // Priority 4: Home directory workspaces
-    path.resolve(process.env["HOME"] ?? "", "workspaces", cleanPath),
-    // Priority 5: Home directory
-    path.resolve(process.env["HOME"] ?? "", cleanPath),
-    // Priority 6: OpenClaw extensions directory
-    path.resolve(process.env["HOME"] ?? "", ".openclaw", cleanPath),
+    path.resolve(home, "workspaces", cleanPath),
+    path.resolve(home, cleanPath),
+    path.resolve(home, ".openclaw", cleanPath),
   ];
+  if (path.isAbsolute(cleanPath)) searchPaths.unshift(cleanPath);
 
-  // If input is absolute path, prepend it to search list
-  if (path.isAbsolute(cleanPath)) {
-    searchPaths.unshift(cleanPath);
-  }
-
-  for (const searchPath of searchPaths) {
-    if (fs.existsSync(searchPath)) {
-      return searchPath;
-    }
-  }
-
+  for (const p of searchPaths) if (fs.existsSync(p)) return p;
   return null;
 }
 
-/**
- * Read a readable stream into a buffer.
- */
 async function readStreamToBuffer(stream: Readable): Promise<Buffer> {
   const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
+  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks);
 }
 
-/**
- * Normalize binary responses from the SDK or fetch.
- */
 async function normalizeBinaryResponse(response: unknown): Promise<Buffer> {
-  if (Buffer.isBuffer(response)) {
-    return response;
-  }
-
-  if (response instanceof Readable) {
-    return readStreamToBuffer(response);
-  }
-
-  if (response instanceof ArrayBuffer) {
-    return Buffer.from(response);
-  }
-
-  if (ArrayBuffer.isView(response)) {
-    return Buffer.from(response.buffer, response.byteOffset, response.byteLength);
-  }
-
+  if (Buffer.isBuffer(response)) return response;
+  if (response instanceof Readable) return readStreamToBuffer(response);
+  if (response instanceof ArrayBuffer) return Buffer.from(response);
+  if (ArrayBuffer.isView(response)) return Buffer.from(response.buffer, response.byteOffset, response.byteLength);
   if (typeof response === "object" && response !== null) {
-    const responseObj = response as { code?: number; msg?: string; data?: unknown };
-    if (responseObj.code !== undefined && responseObj.code !== 0) {
-      throw new Error(`Download failed: ${responseObj.msg ?? `code ${responseObj.code}`}`);
-    }
-    if (responseObj.data !== undefined) {
-      return normalizeBinaryResponse(responseObj.data);
-    }
+    const obj = response as { code?: number; msg?: string; data?: unknown };
+    if (obj.code !== undefined && obj.code !== 0) throw new Error(`Download failed: ${obj.msg ?? `code ${obj.code}`}`);
+    if (obj.data !== undefined) return normalizeBinaryResponse(obj.data);
   }
-
   throw new Error("Download failed: unsupported response type");
 }
 
-// ============================================================================
-// Upload Operations
-// ============================================================================
+interface ApiResponse { code?: number; msg?: string; image_key?: string; file_key?: string; data?: { image_key?: string; file_key?: string; message_id?: string } }
 
-interface UploadImageResponse {
-  code?: number;
-  msg?: string;
-  image_key?: string;
-  data?: { image_key?: string };
-}
-
-/**
- * Upload an image to Feishu.
- * Supports JPEG, PNG, WEBP, GIF, TIFF, BMP, ICO.
- *
- * @throws Error if upload fails
- */
-export async function uploadImage(
-  config: Config,
-  params: UploadImageParams
-): Promise<ImageUploadResult> {
+/** Upload an image to Feishu */
+export async function uploadImage(config: Config, params: UploadImageParams): Promise<ImageUploadResult> {
   const client = getApiClient(config);
-  const imageType = params.imageType ?? "message";
-
-  // Create readable stream from input
-  const imageStream =
-    typeof params.image === "string"
-      ? fs.createReadStream(params.image)
-      : Readable.from(params.image);
-
-  const response = (await client.im.image.create({
-    data: {
-      image_type: imageType,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      image: imageStream as any,
-    },
-  })) as UploadImageResponse;
-
-  if (response.code !== undefined && response.code !== 0) {
-    throw new Error(`Image upload failed: ${response.msg ?? `code ${response.code}`}`);
-  }
-
+  const imageStream = typeof params.image === "string" ? fs.createReadStream(params.image) : Readable.from(params.image);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = (await client.im.image.create({ data: { image_type: params.imageType ?? "message", image: imageStream as any } })) as ApiResponse;
+  if (response.code !== undefined && response.code !== 0) throw new Error(`Image upload failed: ${response.msg ?? `code ${response.code}`}`);
   const imageKey = response.image_key ?? response.data?.image_key;
-  if (!imageKey) {
-    throw new Error("Image upload failed: no image_key returned");
-  }
-
+  if (!imageKey) throw new Error("Image upload failed: no image_key returned");
   return { imageKey };
 }
 
-interface UploadFileResponse {
-  code?: number;
-  msg?: string;
-  file_key?: string;
-  data?: { file_key?: string };
-}
-
-/**
- * Upload a file to Feishu.
- * Max file size: 30MB.
- *
- * @throws Error if upload fails
- */
-export async function uploadFile(
-  config: Config,
-  params: UploadFileParams
-): Promise<FileUploadResult> {
+/** Upload a file to Feishu (max 30MB) */
+export async function uploadFile(config: Config, params: UploadFileParams): Promise<FileUploadResult> {
   const client = getApiClient(config);
-
-  // Create readable stream from input
-  const fileStream =
-    typeof params.file === "string" ? fs.createReadStream(params.file) : Readable.from(params.file);
-
+  const fileStream = typeof params.file === "string" ? fs.createReadStream(params.file) : Readable.from(params.file);
   const response = (await client.im.file.create({
-    data: {
-      file_type: params.fileType,
-      file_name: params.fileName,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      file: fileStream as any,
-      ...(params.duration !== undefined ? { duration: params.duration } : {}),
-    },
-  })) as UploadFileResponse;
-
-  if (response.code !== undefined && response.code !== 0) {
-    throw new Error(`File upload failed: ${response.msg ?? `code ${response.code}`}`);
-  }
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    data: { file_type: params.fileType, file_name: params.fileName, file: fileStream as any, ...(params.duration !== undefined ? { duration: params.duration } : {}) },
+  })) as ApiResponse;
+  if (response.code !== undefined && response.code !== 0) throw new Error(`File upload failed: ${response.msg ?? `code ${response.code}`}`);
   const fileKey = response.file_key ?? response.data?.file_key;
-  if (!fileKey) {
-    throw new Error("File upload failed: no file_key returned");
-  }
-
+  if (!fileKey) throw new Error("File upload failed: no file_key returned");
   return { fileKey };
 }
 
-// ============================================================================
-// Download Operations
-// ============================================================================
-
-/**
- * Download an image by image_key (only works for bot's own uploads).
- *
- * @throws Error if download fails
- */
-export async function downloadImage(
-  config: Config,
-  params: DownloadImageParams
-): Promise<Buffer> {
+/** Download an image by image_key (only works for bot's own uploads) */
+export async function downloadImage(config: Config, params: DownloadImageParams): Promise<Buffer> {
   const client = getApiClient(config);
-  const response = (await client.request({
-    method: "GET",
-    url: `/open-apis/im/v1/images/${encodeURIComponent(params.imageKey)}`,
-    responseType: "arraybuffer",
-  } as Record<string, unknown>)) as unknown;
-
-  return normalizeBinaryResponse(response);
+  return normalizeBinaryResponse(await client.request({ method: "GET", url: `/open-apis/im/v1/images/${encodeURIComponent(params.imageKey)}`, responseType: "arraybuffer" } as Record<string, unknown>));
 }
 
-/**
- * Download a message resource (image, file, video) from a user's message.
- * This is the correct API to download resources from user-sent messages.
- * Note: Audio messages should use type "file", not "audio".
- *
- * @throws Error if download fails
- */
-export async function downloadMessageResource(
-  config: Config,
-  params: { messageId: string; fileKey: string; type: "image" | "file" | "video" }
-): Promise<Buffer> {
+/** Download a message resource (image, file, video) from a user's message */
+export async function downloadMessageResource(config: Config, params: { messageId: string; fileKey: string; type: "image" | "file" | "video" }): Promise<Buffer> {
   const client = getApiClient(config);
-  
-  const response = await client.im.messageResource.get({
-    params: { type: params.type },
-    path: {
-      message_id: params.messageId,
-      file_key: params.fileKey,
-    },
-  });
-
-  // The response has getReadableStream() method
-  if (response && typeof response.getReadableStream === "function") {
-    const stream = response.getReadableStream();
-    return readStreamToBuffer(stream);
-  }
-
+  const response = await client.im.messageResource.get({ params: { type: params.type }, path: { message_id: params.messageId, file_key: params.fileKey } });
+  if (response && typeof response.getReadableStream === "function") return readStreamToBuffer(response.getReadableStream());
   throw new Error("Download failed: unexpected response format");
 }
 
-/**
- * Download a file by file_key.
- *
- * @throws Error if download fails
- */
-export async function downloadFile(
+/** Download a file by file_key */
+export async function downloadFile(config: Config, params: DownloadFileParams): Promise<Buffer> {
+  const client = getApiClient(config);
+  return normalizeBinaryResponse(await client.request({ method: "GET", url: `/open-apis/im/v1/files/${encodeURIComponent(params.fileKey)}`, responseType: "arraybuffer" } as Record<string, unknown>));
+}
+
+async function sendMediaMessage(
   config: Config,
-  params: DownloadFileParams
-): Promise<Buffer> {
+  to: string,
+  content: string,
+  msgType: "image" | "file",
+  replyToMessageId?: string
+): Promise<SendResult> {
   const client = getApiClient(config);
-  const response = (await client.request({
-    method: "GET",
-    url: `/open-apis/im/v1/files/${encodeURIComponent(params.fileKey)}`,
-    responseType: "arraybuffer",
-  } as Record<string, unknown>)) as unknown;
+  const receiveId = normalizeTarget(to);
+  if (!receiveId) throw new Error(`Invalid target: ${to}`);
 
-  return normalizeBinaryResponse(response);
+  const response = replyToMessageId
+    ? (await client.im.message.reply({ path: { message_id: replyToMessageId }, data: { content, msg_type: msgType } })) as ApiResponse
+    : (await client.im.message.create({ params: { receive_id_type: resolveReceiveIdType(receiveId) }, data: { receive_id: receiveId, content, msg_type: msgType } })) as ApiResponse;
+
+  if (response.code !== 0) throw new Error(`${msgType} send failed: ${response.msg ?? `code ${response.code}`}`);
+  return { messageId: response.data?.message_id ?? "unknown", chatId: receiveId };
 }
 
-// ============================================================================
-// Media Sending
-// ============================================================================
-
-interface SendMediaResponse {
-  code?: number;
-  msg?: string;
-  data?: { message_id?: string };
-}
-
-/**
- * Send an image message using an image_key.
- *
- * @throws Error if target is invalid or send fails
- */
+/** Send an image message using an image_key */
 export async function sendImage(config: Config, params: SendImageParams): Promise<SendResult> {
-  const client = getApiClient(config);
-  const receiveId = normalizeTarget(params.to);
-
-  if (!receiveId) {
-    throw new Error(`Invalid target: ${params.to}`);
-  }
-
-  const receiveIdType = resolveReceiveIdType(receiveId);
-  const content = JSON.stringify({ image_key: params.imageKey });
-
-  if (params.replyToMessageId) {
-    const response = (await client.im.message.reply({
-      path: { message_id: params.replyToMessageId },
-      data: { content, msg_type: "image" },
-    })) as SendMediaResponse;
-
-    if (response.code !== 0) {
-      throw new Error(`Image reply failed: ${response.msg ?? `code ${response.code}`}`);
-    }
-
-    return {
-      messageId: response.data?.message_id ?? "unknown",
-      chatId: receiveId,
-    };
-  }
-
-  const response = (await client.im.message.create({
-    params: { receive_id_type: receiveIdType },
-    data: { receive_id: receiveId, content, msg_type: "image" },
-  })) as SendMediaResponse;
-
-  if (response.code !== 0) {
-    throw new Error(`Image send failed: ${response.msg ?? `code ${response.code}`}`);
-  }
-
-  return {
-    messageId: response.data?.message_id ?? "unknown",
-    chatId: receiveId,
-  };
+  return sendMediaMessage(config, params.to, JSON.stringify({ image_key: params.imageKey }), "image", params.replyToMessageId);
 }
 
-/**
- * Send a file message using a file_key.
- *
- * @throws Error if target is invalid or send fails
- */
+/** Send a file message using a file_key */
 export async function sendFile(config: Config, params: SendFileParams): Promise<SendResult> {
-  const client = getApiClient(config);
-  const receiveId = normalizeTarget(params.to);
-
-  if (!receiveId) {
-    throw new Error(`Invalid target: ${params.to}`);
-  }
-
-  const receiveIdType = resolveReceiveIdType(receiveId);
-  const content = JSON.stringify({ file_key: params.fileKey });
-
-  if (params.replyToMessageId) {
-    const response = (await client.im.message.reply({
-      path: { message_id: params.replyToMessageId },
-      data: { content, msg_type: "file" },
-    })) as SendMediaResponse;
-
-    if (response.code !== 0) {
-      throw new Error(`File reply failed: ${response.msg ?? `code ${response.code}`}`);
-    }
-
-    return {
-      messageId: response.data?.message_id ?? "unknown",
-      chatId: receiveId,
-    };
-  }
-
-  const response = (await client.im.message.create({
-    params: { receive_id_type: receiveIdType },
-    data: { receive_id: receiveId, content, msg_type: "file" },
-  })) as SendMediaResponse;
-
-  if (response.code !== 0) {
-    throw new Error(`File send failed: ${response.msg ?? `code ${response.code}`}`);
-  }
-
-  return {
-    messageId: response.data?.message_id ?? "unknown",
-    chatId: receiveId,
-  };
+  return sendMediaMessage(config, params.to, JSON.stringify({ file_key: params.fileKey }), "file", params.replyToMessageId);
 }
 
-/**
- * Upload and send media (image or file) from URL, local path, or buffer.
- *
- * @throws Error if no media source provided or upload/send fails
- */
-export async function sendMedia(config: Config, params: SendMediaParams): Promise<SendResult> {
-  if (params.imageKey) {
-    return sendImage(config, {
-      to: params.to,
-      imageKey: params.imageKey,
-      replyToMessageId: params.replyToMessageId,
-    });
-  }
+async function fetchUrl(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch media from URL: ${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
+}
 
-  if (params.fileKey) {
-    return sendFile(config, {
-      to: params.to,
-      fileKey: params.fileKey,
-      replyToMessageId: params.replyToMessageId,
-    });
-  }
+function getNameFromUrl(url: string, fallback = "file"): string {
+  return path.basename(new URL(url).pathname) || fallback;
+}
+
+/** Upload and send media (image or file) from URL, local path, or buffer */
+export async function sendMedia(config: Config, params: SendMediaParams): Promise<SendResult> {
+  if (params.imageKey) return sendImage(config, { to: params.to, imageKey: params.imageKey, replyToMessageId: params.replyToMessageId });
+  if (params.fileKey) return sendFile(config, { to: params.to, fileKey: params.fileKey, replyToMessageId: params.replyToMessageId });
 
   let buffer: Buffer;
   let name: string;
@@ -482,45 +214,35 @@ export async function sendMedia(config: Config, params: SendMediaParams): Promis
     name = params.fileName ?? "file";
   } else if (params.mediaUrl) {
     if (isLocalPath(params.mediaUrl)) {
-      // Local file path - try to resolve it
       const resolvedPath = resolveFilePath(params.mediaUrl);
-
-      if (!resolvedPath) {
-        throw new Error(
-          `Local file not found: ${params.mediaUrl} (searched in cwd, home, /workspaces)`
-        );
-      }
-
+      if (!resolvedPath) throw new Error(`Local file not found: ${params.mediaUrl}`);
       buffer = fs.readFileSync(resolvedPath);
       name = params.fileName ?? path.basename(resolvedPath);
     } else {
-      // Remote URL
-      const response = await fetch(params.mediaUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch media from URL: ${response.status}`);
+      // Remote URL - try SDK optimization for images (HEIC conversion, smart compression)
+      const maxBytes = config.mediaMaxMb ? config.mediaMaxMb * 1024 * 1024 : 20 * 1024 * 1024;
+      if (sdkLoadWebMedia && isImageExtension(params.fileName ?? params.mediaUrl)) {
+        try {
+          const result = await sdkLoadWebMedia(params.mediaUrl, maxBytes);
+          buffer = result.buffer;
+          name = params.fileName ?? result.fileName ?? getNameFromUrl(params.mediaUrl, "image.jpg");
+        } catch {
+          buffer = await fetchUrl(params.mediaUrl);
+          name = params.fileName ?? getNameFromUrl(params.mediaUrl);
+        }
+      } else {
+        buffer = await fetchUrl(params.mediaUrl);
+        name = params.fileName ?? getNameFromUrl(params.mediaUrl);
       }
-      buffer = Buffer.from(await response.arrayBuffer());
-      name = params.fileName ?? (path.basename(new URL(params.mediaUrl).pathname) || "file");
     }
   } else {
     throw new Error("Either mediaUrl or mediaBuffer must be provided");
   }
 
-  // Determine if it's an image and upload accordingly
   if (isImageExtension(name)) {
     const { imageKey } = await uploadImage(config, { image: buffer });
-    return sendImage(config, {
-      to: params.to,
-      imageKey,
-      replyToMessageId: params.replyToMessageId,
-    });
-  } else {
-    const fileType = detectFileType(name);
-    const { fileKey } = await uploadFile(config, {
-      file: buffer,
-      fileName: name,
-      fileType,
-    });
-    return sendFile(config, { to: params.to, fileKey, replyToMessageId: params.replyToMessageId });
+    return sendImage(config, { to: params.to, imageKey, replyToMessageId: params.replyToMessageId });
   }
+  const { fileKey } = await uploadFile(config, { file: buffer, fileName: name, fileType: detectFileType(name) });
+  return sendFile(config, { to: params.to, fileKey, replyToMessageId: params.replyToMessageId });
 }

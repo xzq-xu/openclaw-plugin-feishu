@@ -3,7 +3,7 @@
  * Integrates with Clawdbot runtime for routing and agent execution.
  */
 
-import type { ClawdbotConfig, RuntimeEnv, HistoryEntry, PluginRuntime } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, RuntimeEnv, HistoryEntry, PluginRuntime } from "openclaw/plugin-sdk";
 import {
   buildPendingHistoryContextFromMap,
   recordPendingHistoryEntryIfEnabled,
@@ -29,95 +29,37 @@ import { getUserByOpenId, getUserByUnionId } from "../api/directory.js";
 import { getRuntime } from "./runtime.js";
 import { matchAllowlist as matchAllowlistPolicy } from "./policy.js";
 
-// ============================================================================
-// Media Handling
-// ============================================================================
+interface MediaInfo { path: string; contentType: string; }
 
-interface MediaInfo {
-  path: string;
-  contentType: string;
-}
+const MIME_MAP: Record<string, string> = {
+  ".txt": "text/plain", ".json": "application/json", ".pdf": "application/pdf",
+  ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
+  ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".wav": "audio/wav", ".opus": "audio/opus", ".ogg": "audio/ogg",
+};
+const EXT_MAP = Object.fromEntries(Object.entries(MIME_MAP).map(([k, v]) => [v, k]));
 
-/**
- * Detect content type from buffer magic bytes.
- */
 function detectContentType(buffer: Buffer, fileName?: string): string {
-  // Check magic bytes
-  if (buffer[0] === 0x89 && buffer[1] === 0x50) return "image/png";
-  if (buffer[0] === 0x47 && buffer[1] === 0x49) return "image/gif";
-  if (buffer[0] === 0x52 && buffer[1] === 0x49) return "image/webp";
-  if (buffer[0] === 0xFF && buffer[1] === 0xD8) return "image/jpeg";
-  if (buffer[0] === 0x25 && buffer[1] === 0x50) return "application/pdf";
-  // Ogg container (used for Opus audio)
-  if (buffer[0] === 0x4F && buffer[1] === 0x67 && buffer[2] === 0x67 && buffer[3] === 0x53) {
-    return "audio/ogg";
-  }
-  
-  // Check file extension
-  if (fileName) {
-    const ext = path.extname(fileName).toLowerCase();
-    const extMap: Record<string, string> = {
-      ".txt": "text/plain",
-      ".json": "application/json",
-      ".pdf": "application/pdf",
-      ".doc": "application/msword",
-      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ".xls": "application/vnd.ms-excel",
-      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      ".jpg": "image/jpeg",
-      ".jpeg": "image/jpeg",
-      ".png": "image/png",
-      ".gif": "image/gif",
-      ".webp": "image/webp",
-      ".mp3": "audio/mpeg",
-      ".mp4": "video/mp4",
-      ".wav": "audio/wav",
-      ".opus": "audio/opus",
-      ".ogg": "audio/ogg",
-    };
-    if (extMap[ext]) return extMap[ext];
-  }
-  
+  const magic = buffer.slice(0, 4);
+  if (magic[0] === 0x89 && magic[1] === 0x50) return "image/png";
+  if (magic[0] === 0x47 && magic[1] === 0x49) return "image/gif";
+  if (magic[0] === 0x52 && magic[1] === 0x49) return "image/webp";
+  if (magic[0] === 0xFF && magic[1] === 0xD8) return "image/jpeg";
+  if (magic[0] === 0x25 && magic[1] === 0x50) return "application/pdf";
+  if (magic[0] === 0x4F && magic[1] === 0x67 && magic[2] === 0x67 && magic[3] === 0x53) return "audio/ogg";
+  if (fileName) { const m = MIME_MAP[path.extname(fileName).toLowerCase()]; if (m) return m; }
   return "application/octet-stream";
 }
 
-/**
- * Get file extension from content type.
- */
 function getExtension(contentType: string, fileName?: string): string {
-  // Use original file extension if available
-  if (fileName) {
-    const ext = path.extname(fileName);
-    if (ext) return ext;
-  }
-  
-  const extMap: Record<string, string> = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-    "text/plain": ".txt",
-    "application/json": ".json",
-    "application/pdf": ".pdf",
-    "audio/opus": ".opus",
-    "audio/ogg": ".ogg",
-    "audio/mpeg": ".mp3",
-    "audio/wav": ".wav",
-    "video/mp4": ".mp4",
-  };
-  return extMap[contentType] ?? "";
+  if (fileName) { const ext = path.extname(fileName); if (ext) return ext; }
+  return EXT_MAP[contentType] ?? "";
 }
 
-/**
- * Get media directory from config or use system temp directory.
- */
 function getMediaDir(feishuCfg: Config): string {
   if (feishuCfg.mediaDir) {
-    // Expand ~ to home directory
-    if (feishuCfg.mediaDir.startsWith("~")) {
-      return feishuCfg.mediaDir.replace("~", os.homedir());
-    }
-    return feishuCfg.mediaDir;
+    return feishuCfg.mediaDir.startsWith("~") ? feishuCfg.mediaDir.replace("~", os.homedir()) : feishuCfg.mediaDir;
   }
   // Default: system temp directory
   return path.join(os.tmpdir(), "openclaw-feishu-media");
@@ -168,12 +110,10 @@ async function downloadAndSaveMedia(
   }
 }
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export interface MessageHandlerParams {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   event: MessageReceivedEvent;
   botOpenId?: string;
   botName?: string;
@@ -183,7 +123,7 @@ export interface MessageHandlerParams {
 }
 
 export interface DispatchParams {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   feishuCfg: Config;
   parsed: ParsedMessage;
   runtime?: RuntimeEnv;
@@ -194,9 +134,7 @@ export interface DispatchParams {
   isAutoReply?: boolean;
 }
 
-// ============================================================================
 // Message Handler
-// ============================================================================
 
 export async function handleMessage(params: MessageHandlerParams): Promise<void> {
   const {
@@ -363,12 +301,10 @@ export async function handleMessage(params: MessageHandlerParams): Promise<void>
   });
 }
 
-// ============================================================================
 // Batch Flush Handler
-// ============================================================================
 
 export function createBatchFlushHandler(params: {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   runtime?: RuntimeEnv;
   chatHistories: Map<string, HistoryEntry[]>;
 }): (flushParams: FlushParams) => Promise<void> {
@@ -421,9 +357,7 @@ export function createBatchFlushHandler(params: {
   };
 }
 
-// ============================================================================
 // Agent Dispatch
-// ============================================================================
 
 async function dispatchToAgent(params: DispatchParams): Promise<void> {
   const { cfg, feishuCfg, parsed, runtime, chatHistories, historyLimit, batchedMessages, isAutoReply } = params;

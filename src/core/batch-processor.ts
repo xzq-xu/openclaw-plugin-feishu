@@ -7,16 +7,14 @@
  * 2. Auto-reply mode: Agent autonomously decides whether to respond based on accumulated messages
  */
 
-import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-sdk";
 import type { MessageReceivedEvent } from "../types/index.js";
 import type { ParsedMessage } from "../types/index.js";
 import type { Trigger, TriggerContext } from "./triggers/index.js";
 import { mentionTrigger } from "./triggers/mention.js";
 import type { AutoReplyConfig } from "../config/schema.js";
 
-// ============================================================================
 // Constants
-// ============================================================================
 
 const STARTUP_WINDOW_MS = 10_000;
 const REALTIME_DEBOUNCE_MS = 2_000; // Increased from 500ms - wait for user to finish typing
@@ -27,9 +25,7 @@ const AUTO_REPLY_MIN_MESSAGES = 5;
 const AUTO_REPLY_MIN_TIME_MS = 60_000; // 1 minute
 const AUTO_REPLY_DEBOUNCE_MS = 3_000;
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export interface BufferedMessage {
   parsed: ParsedMessage;
@@ -59,7 +55,7 @@ export interface FlushParams {
 }
 
 export interface BatchProcessorOptions {
-  cfg: ClawdbotConfig;
+  cfg: OpenClawConfig;
   runtime?: RuntimeEnv;
   chatHistories: Map<string, HistoryEntry[]>;
   botOpenId?: string;
@@ -69,9 +65,7 @@ export interface BatchProcessorOptions {
   onFlush: (params: FlushParams) => Promise<void>;
 }
 
-// ============================================================================
 // BatchProcessor
-// ============================================================================
 
 export class BatchProcessor {
   private chatStates = new Map<string, ChatBatchState>();

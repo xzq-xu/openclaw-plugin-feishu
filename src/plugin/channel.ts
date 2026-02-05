@@ -4,7 +4,7 @@
 
 import type {
   ChannelPlugin,
-  ClawdbotConfig,
+  OpenClawConfig,
   ChannelGroupContext,
   GroupToolPolicyConfig,
 } from "openclaw/plugin-sdk";
@@ -28,9 +28,7 @@ import { getRuntime } from "../core/runtime.js";
 import { getBotOpenId } from "../core/gateway.js";
 import { feishuOnboarding } from "./onboarding.js";
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export interface ResolvedAccount {
   accountId: string;
@@ -42,11 +40,9 @@ export interface ResolvedAccount {
   domain: "feishu" | "lark";
 }
 
-// ============================================================================
 // Account Resolution
-// ============================================================================
 
-function resolveAccount(cfg: ClawdbotConfig, accountId?: string | null): ResolvedAccount {
+function resolveAccount(cfg: OpenClawConfig, accountId?: string | null): ResolvedAccount {
   const feishuCfg = cfg.channels?.feishu as Config | undefined;
   const resolved = resolveAccountConfig(feishuCfg, accountId);
 
@@ -61,9 +57,7 @@ function resolveAccount(cfg: ClawdbotConfig, accountId?: string | null): Resolve
   };
 }
 
-// ============================================================================
 // Channel Metadata
-// ============================================================================
 
 const meta = {
   id: "feishu",
@@ -76,9 +70,7 @@ const meta = {
   order: 70,
 };
 
-// ============================================================================
 // Channel Plugin
-// ============================================================================
 
 export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
   id: "feishu",
@@ -107,6 +99,7 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
     reactions: true,
     edit: true,
     reply: true,
+    blockStreaming: true,
   },
 
   // Agent prompt hints
@@ -258,7 +251,7 @@ export const feishuChannel: ChannelPlugin<ResolvedAccount> = {
         const hasRemainingConfig = Object.keys(remainingCfg).length > 0;
 
         if (!hasRemainingConfig) {
-          const next = { ...cfg } as ClawdbotConfig;
+          const next = { ...cfg } as OpenClawConfig;
           const nextChannels = { ...cfg.channels };
           delete (nextChannels as Record<string, unknown>).feishu;
           if (Object.keys(nextChannels).length > 0) {

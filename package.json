@@ -1,6 +1,6 @@
 {
   "name": "@xzq-xu/feishu",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Production-grade Feishu/Lark channel plugin for OpenClaw",
   "license": "MIT",

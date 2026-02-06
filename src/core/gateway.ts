@@ -138,6 +138,10 @@ export async function startGateway(options: GatewayOptions): Promise<void> {
   const log = (msg: string) => runtime?.log?.(msg);
   const error = (msg: string) => runtime?.error?.(msg);
 
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pkg = require("../../package.json") as { version: string };
+  log(`🚀 @xzq-xu/feishu plugin v${pkg.version} starting...`);
+
   if (!feishuCfg) {
     throw new Error("Feishu not configured");
   }
